@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/*
+
+# Next.js
+.next/*
+out/*
+
+# Build
+dist/*
+
+# Environment variables — never commit real keys
+.env
+.env.local
+.env.*.local
+# .env.local.example is intentionally kept (contains no real values)
+
+# TypeScript
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/*
+.idea/*
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test fixtures (may contain sensitive PDFs)
+scripts/fixtures/*
+/tmp/*
