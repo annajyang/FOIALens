@@ -97,20 +97,20 @@ related angles you discover. Cite every claim with page numbers.
 
 ## 3. Ingestion pipeline
 
-### 3.1 PDF text extraction (`lib/ingestion/pdf-extractor.ts`)
+### 3.1 PDF text extraction (`backend/ingestion/pdf_extractor.py`)
 
-Uses `pdf-parse` to extract text with page-number metadata. Each page is returned as a `PagedText` object:
+Uses `pdfplumber` to extract text with page-number metadata. Each page is returned as a `PagedText` dataclass:
 
-```ts
-interface PagedText {
-  page: number;
-  text: string;
-}
+```python
+@dataclass
+class PagedText:
+    page: int
+    text: str
 ```
 
-The extractor joins adjacent hyphenated words across line breaks and strips common PDF artifacts (form-feed characters, excessive whitespace).
+The extractor rejoins hyphenated line breaks, strips form-feed characters, and normalises excessive whitespace.
 
-### 3.2 Chunking strategy (`lib/ingestion/chunker.ts`)
+### 3.2 Chunking strategy (`backend/ingestion/chunker.py`)
 
 **Goal:** ~500 tokens per chunk, no mid-sentence breaks, with 50-token overlap between adjacent chunks.
 
@@ -118,45 +118,44 @@ The extractor joins adjacent hyphenated words across line breaks and strips comm
 
 1. Tokenize roughly by character count (1 token ≈ 4 chars → target ~2000 chars).
 2. Split candidate chunks on sentence boundaries using a regex that detects `.`, `?`, `!` followed by whitespace or end-of-string. Abbreviations (U.S., Dr., etc.) are handled by a denylist of common prefixes.
-3. If a single sentence exceeds the token budget, split on clause boundaries (`;`, `,` followed by a conjunction) as a fallback.
-4. Append the last 200 characters of chunk N as a prefix to chunk N+1 to preserve cross-chunk context.
+3. Append the last 200 characters of chunk N as a prefix to chunk N+1 to preserve cross-chunk context.
 
 Each chunk is tagged with the originating page number range:
 
-```ts
-interface Chunk {
-  content: string;
-  startPage: number;
-  endPage: number;
-  chunkIndex: number;
-  documentId: string;
-  workspaceId: string;
-}
+```python
+@dataclass
+class RawChunk:
+    content: str
+    start_page: int
+    end_page: int
+    chunk_index: int
+    token_count: int  # approximate: chars / 4
 ```
 
-### 3.3 Embedding (`lib/ingestion/embedder.ts`)
+### 3.3 Embedding (`backend/ingestion/embedder.py`)
 
 - Model: `text-embedding-3-small` (OpenAI), output dimension: **1536**.
-- Chunks are batched in groups of 100 before calling the embedding API to minimize round-trips.
-- Embeddings are stored as pgvector `vector(1536)` columns.
+- Chunks are batched in groups of 100 before calling the embedding API to minimise round-trips.
+- Embeddings are stored as pgvector `vector(1536)` columns, passed as `[x,y,...]` strings with a `::vector` cast.
 
-### 3.4 Upload orchestrator (`lib/ingestion/upload.ts`)
+### 3.4 Upload orchestrator (`backend/ingestion/upload.py`)
 
 ```
-uploadHandler(files, workspaceId) →
+ingest_files(files, workspace_id) →
   for each file:
-    1. extractPages(buffer) → PagedText[]
-    2. chunkPages(pagedTexts) → Chunk[]
-    3. embedChunks(chunks) → EmbeddedChunk[]
-    4. db.insertDocument(filename, workspaceId)
-    5. db.insertChunks(embeddedChunks)
+    1. extract_pages(buffer) → list[PagedText]
+    2. chunk_pages(pages)    → list[RawChunk]
+    3. embed_texts(contents) → list[list[float]]
+    4. INSERT document row
+    5. INSERT chunk rows (within a single transaction)
+  UPDATE workspace status → 'ready'
 ```
 
 ---
 
-## 4. Tool suite (`lib/tools/`)
+## 4. Tool suite (`backend/tools/`)
 
-Tools are defined in the Anthropic tool-use schema and dispatched by the agent loop. Each tool has a pure TypeScript implementation that reads from the database or makes a secondary Claude call.
+Tools are defined in the Anthropic tool-use schema and dispatched by the agent loop. Each tool is a Python async function that reads from the database or makes a secondary Claude call.
 
 ### `search_documents(query: string, limit?: number)`
 
@@ -263,35 +262,38 @@ This tool exists because angles are first-class objects that the journalist inte
 
 ---
 
-## 5. Agentic loop (`lib/agent/investigator.ts`)
+## 5. Agentic loop (`backend/agent/investigator.py`)
 
 ### 5.1 Loop design
 
-Standard Claude tool-use conversation loop. The mode-appropriate system prompt and a workspace context block are injected before the user turn.
+Standard Claude tool-use conversation loop implemented as a Python **async generator** — it `yield`s SSE event dicts that the FastAPI route streams to the client. The mode-appropriate system prompt and a workspace context block are injected before the user turn.
 
-```
+```python
 messages = [
-  { role: "system", content: systemPrompt(mode, prompt) },
-  { role: "user",   content: userTurn(workspaceId, corpusSummary) }
+  {"role": "user", "content": build_user_turn(workspace_context)}
 ]
 
-loop:
-  response = claude.messages.create(messages, tools, { max_tokens: 8192 })
-  append response to messages
+async for _ in range(MAX_ITERATIONS):
+  response = await anthropic.messages.create(
+      model=SONNET, max_tokens=8192,
+      system=build_system_prompt(mode, prompt),
+      tools=TOOL_DEFINITIONS, messages=messages,
+  )
+  messages.append({"role": "assistant", "content": response.content})
 
-  if stop_reason == "end_turn":
-    parse final memo from last text block
-    save run.summary and run.trace
-    break
+  if response.stop_reason == "end_turn":
+    yield {"type": "done", ...}
+    return
 
-  if stop_reason == "tool_use":
+  if response.stop_reason == "tool_use":
     tool_results = []
-    for each tool_use block in response.content:
-      result = dispatch(tool.name, tool.input, workspaceId, runId)
-      emit SSE { type: "trace", tool: tool.name, input: tool.input, resultSummary }
-      tool_results.push({ type: "tool_result", tool_use_id: block.id,
-                          content: JSON.stringify(result) })
-    messages.push({ role: "user", content: tool_results })
+    for block in response.content:
+      if block.type != "tool_use": continue
+      result = await dispatch_tool(block.name, block.input, workspace_id, run_id)
+      yield {"type": "trace", "tool": block.name, ...}
+      tool_results.append({"type": "tool_result",
+                           "tool_use_id": block.id, "content": json.dumps(result)})
+    messages.append({"role": "user", "content": tool_results})
 ```
 
 ### 5.2 Workspace context block

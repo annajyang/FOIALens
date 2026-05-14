@@ -1,6 +1,8 @@
 # FOIALens — API Specification
 
-All endpoints live under `/app/api/`. All request and response bodies are `application/json` unless noted.
+The backend is a **FastAPI** server running at `http://localhost:8000`. All endpoints are prefixed `/api/`. All request and response bodies are `application/json` unless noted.
+
+The Next.js frontend runs at `http://localhost:3000` and calls the backend directly.
 
 ---
 
@@ -59,19 +61,15 @@ Returned after ingestion completes (synchronous).
 
 #### Error responses
 
-| Status | Code | When |
-|---|---|---|
-| `400` | `MISSING_NAME` | No name field |
-| `400` | `NO_FILES` | No files in request |
-| `400` | `TOO_MANY_FILES` | More than 20 files |
-| `400` | `FILE_TOO_LARGE` | Any file exceeds 50 MB |
-| `400` | `INVALID_TYPE` | A file is not a PDF |
-| `500` | `EXTRACTION_FAILED` | pdf-parse error |
-| `500` | `DB_ERROR` | Postgres write failure |
+| Status | When |
+|---|---|
+| `400` | No name field, no files, too many files, file too large, non-PDF |
+| `422` | PDF contains no extractable text |
+| `500` | Postgres write failure or unexpected error |
 
 ---
 
-### `GET /api/workspaces/[workspaceId]`
+### `GET /api/workspaces/{workspaceId}`
 
 Full workspace detail: documents, all angles (with status), accumulated entities, timeline, and run history.
 
@@ -128,14 +126,13 @@ Full workspace detail: documents, all angles (with status), accumulated entities
 
 #### Error responses
 
-| Status | Code | When |
-|---|---|---|
-| `404` | `WORKSPACE_NOT_FOUND` | No workspace with that ID |
-| `500` | `DB_ERROR` | Postgres read failure |
+| Status | When |
+|---|---|
+| `404` | No workspace with that ID |
 
 ---
 
-### `PATCH /api/workspaces/[workspaceId]`
+### `PATCH /api/workspaces/{workspaceId}`
 
 Update workspace metadata (currently: rename).
 
@@ -153,7 +150,7 @@ Update workspace metadata (currently: rename).
 
 ---
 
-### `POST /api/workspaces/[workspaceId]/upload`
+### `POST /api/workspaces/{workspaceId}/upload`
 
 Add more documents to an existing workspace. Only allowed when status is `ready` or `active` (not while a run is in progress).
 
@@ -177,9 +174,10 @@ Add more documents to an existing workspace. Only allowed when status is `ready`
 
 #### Error responses
 
-| Status | Code | When |
-|---|---|---|
-| `409` | `RUN_IN_PROGRESS` | Cannot add documents while a run is active |
+| Status | When |
+|---|---|
+| `404` | Workspace not found |
+| `409` | Cannot add documents while a run is active |
 
 ---
 
@@ -273,17 +271,13 @@ data: {
 data: {"type":"error","message":"Claude API rate limit. Retry after 60s."}
 ```
 
-#### Pre-stream error responses (standard JSON)
+#### Pre-stream error responses (JSON)
 
-| Status | Code | When |
-|---|---|---|
-| `400` | `MISSING_WORKSPACE_ID` | No workspaceId in body |
-| `400` | `INVALID_MODE` | Mode is not `exploratory` or `directed` |
-| `400` | `PROMPT_REQUIRED` | Directed mode with no prompt |
-| `404` | `WORKSPACE_NOT_FOUND` | No workspace with that ID |
-| `409` | `NOT_READY` | Workspace is still ingesting |
-| `409` | `RUN_IN_PROGRESS` | Another run is active on this workspace |
-| `500` | `ANTHROPIC_ERROR` | Claude API non-retryable error |
+| Status | When |
+|---|---|
+| `400` | Missing `workspaceId`, invalid `mode`, or directed mode with no prompt |
+| `404` | No workspace with that ID |
+| `409` | Workspace still ingesting, or another run already active |
 
 #### Behavior
 
@@ -292,12 +286,12 @@ data: {"type":"error","message":"Claude API rate limit. Retry after 60s."}
 - Angles are written to the DB immediately when the agent calls `propose_angle` — they are not batched at the end.
 - On `done`: updates the run to `done`, merges new entities/timeline into the workspace, sets workspace status to `active`.
 - On `error`: sets run status to `error`, sets `run.error`, resets workspace status to `active` (or `ready` if this was the first run).
-- Stream is not resumable. If the client disconnects, the agent continues server-side; retrieve the run's angles via `GET /api/workspaces/[workspaceId]`.
+- Stream is not resumable. If the client disconnects, the agent continues server-side; retrieve the run's angles via `GET /api/workspaces/{workspaceId}`.
 
 #### Client consumption example
 
 ```ts
-const res = await fetch("/api/investigate", {
+const res = await fetch("http://localhost:8000/api/investigate", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ workspaceId, mode: "exploratory" }),
@@ -330,7 +324,7 @@ while (true) {
 
 ## Angles
 
-### `PATCH /api/angles/[angleId]`
+### `PATCH /api/angles/{angleId}`
 
 Update the status of an angle (journalist triage action). Only `status` is mutable after creation.
 
@@ -354,16 +348,16 @@ Valid values: `"proposed"`, `"pinned"`, `"dismissed"`.
 
 #### Error responses
 
-| Status | Code | When |
-|---|---|---|
-| `400` | `INVALID_STATUS` | Status is not a valid value |
-| `404` | `ANGLE_NOT_FOUND` | No angle with that ID |
+| Status | When |
+|---|---|
+| `400` | Status is not `proposed`, `pinned`, or `dismissed` |
+| `404` | No angle with that ID |
 
 ---
 
 ## Investigation runs
 
-### `GET /api/runs/[runId]`
+### `GET /api/runs/{runId}`
 
 Fetch a specific run's full trace and summary. Used to restore the trace panel if the client reconnected after the stream ended.
 
@@ -396,30 +390,31 @@ Fetch a specific run's full trace and summary. Used to restore the trace panel i
 
 ---
 
-## Common error envelope
+## Error format
 
-All non-stream error responses:
+FastAPI returns errors in its standard envelope:
 
 ```json
-{
-  "error": "ERROR_CODE",
-  "message": "Human-readable explanation."
-}
+{ "detail": "Human-readable explanation." }
+```
+
+Stream errors (mid-SSE) are delivered as a final SSE event:
+
+```
+data: {"type":"error","message":"Human-readable explanation."}
 ```
 
 ---
 
 ## Timeouts
 
-| Endpoint | Timeout | Notes |
-|---|---|---|
-| `POST /api/workspaces` (upload) | 120 s | Embedding latency × batch count |
-| `POST /api/workspaces/[id]/upload` | 120 s | Same |
-| `POST /api/investigate` | 300 s | Agent loop |
-| All other endpoints | 10 s | Simple reads/writes |
+No hard timeouts are enforced by the server in local development. For production deployment behind a proxy (nginx, AWS ALB, etc.), configure upstream timeouts:
 
-Set in each route file:
+| Endpoint | Recommended timeout |
+|---|---|
+| `POST /api/workspaces` (upload) | 120 s — embedding latency × batch count |
+| `POST /api/workspaces/{id}/upload` | 120 s |
+| `POST /api/investigate` | 300 s — agent loop |
+| All other endpoints | 10 s |
 
-```ts
-export const maxDuration = 300; // Vercel Pro/Enterprise; no limit in local dev
-```
+uvicorn itself has no built-in request timeout; add `--timeout-keep-alive` if needed.

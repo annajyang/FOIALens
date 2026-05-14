@@ -30,12 +30,13 @@ Angles are the primary artifact. Each one is a discrete story opportunity: a wor
 
 ## Prerequisites
 
-| Requirement | Version |
-|---|---|
-| Node.js | ≥ 20 |
-| PostgreSQL | ≥ 15 with pgvector extension |
-| Anthropic API key | — |
-| OpenAI API key | Used only for `text-embedding-3-small` embeddings |
+| Requirement | Version | Used for |
+|---|---|---|
+| Python | ≥ 3.11 | Backend API server |
+| Node.js | ≥ 20 | Frontend only |
+| PostgreSQL | ≥ 14 with pgvector extension | Storage + semantic search |
+| Anthropic API key | — | Agent loop + entity/timeline extraction |
+| OpenAI API key | — | `text-embedding-3-small` embeddings only |
 
 > **Why two API keys?** Anthropic does not expose an embeddings endpoint. OpenAI's `text-embedding-3-small` is cheap (~$0.02 / million tokens) and pairs naturally with pgvector. The Claude API is used for all reasoning.
 
@@ -48,7 +49,12 @@ Angles are the primary artifact. Each one is a discrete story opportunity: a wor
 ```bash
 git clone <repo>
 cd foialens
+
+# Frontend dependencies
 npm install
+
+# Backend dependencies
+cd backend && pip install -r requirements.txt && cd ..
 ```
 
 ### 2. Environment variables
@@ -60,7 +66,7 @@ cp .env.local.example .env.local
 Edit `.env.local`:
 
 ```env
-# Anthropic — agentic reasoning loop
+# Anthropic — agentic reasoning loop + Haiku extractions
 ANTHROPIC_API_KEY=sk-ant-...
 
 # OpenAI — embeddings only
@@ -77,13 +83,22 @@ createdb foialens
 psql foialens < lib/db/schema.sql
 ```
 
-### 4. Run the dev server
+### 4. Run both servers
+
+In one terminal — Python backend (port 8000):
+
+```bash
+cd backend
+uvicorn main:app --reload --port 8000
+```
+
+In another terminal — Next.js frontend (port 3000):
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). The frontend calls the Python backend at `http://localhost:8000/api/`.
 
 ---
 
@@ -118,7 +133,8 @@ Run another investigation — exploratory or directed — at any time. New angle
 ### Seed with a sample document
 
 ```bash
-npm run seed
+cd backend
+python scripts/seed.py
 ```
 
 Ingests a sample public-domain FOIA release and opens a workspace in the browser.
@@ -129,12 +145,13 @@ Ingests a sample public-domain FOIA release and opens a workspace in the browser
 
 | Layer | Choice | Reason |
 |---|---|---|
-| Framework | Next.js 14 (App Router) | Server components + streaming responses |
-| Language | TypeScript | End-to-end type safety |
+| Backend | FastAPI + uvicorn (Python 3.11+) | Async, native SSE streaming, clean routing |
+| Frontend | Next.js 14 (App Router) + TypeScript | React server components, file-based routing |
 | Database | PostgreSQL + pgvector | Relational + semantic search in one store |
-| Agent | Claude Sonnet (`claude-sonnet-4-20250514`) | Tool use + long-context reasoning |
+| Agent | Claude Sonnet (`claude-sonnet-4-6`) | Tool use + long-context reasoning |
+| Extraction | Claude Haiku (`claude-haiku-4-5-20251001`) | Structured entity/timeline extraction (10× cheaper) |
 | Embeddings | OpenAI `text-embedding-3-small` | Best cost/quality for semantic retrieval |
-| PDF parsing | `pdf-parse` | Lightweight, page-number aware |
+| PDF parsing | pdfplumber | Page-level text extraction with layout awareness |
 | Styling | Tailwind CSS | Utility-first, no build-step CSS |
 
 ---
@@ -143,21 +160,37 @@ Ingests a sample public-domain FOIA release and opens a workspace in the browser
 
 ```
 foialens/
-├── app/
+├── backend/                                   # Python — FastAPI server (port 8000)
+│   ├── main.py                                # App init, CORS, router registration
+│   ├── requirements.txt
+│   ├── db/
+│   │   └── client.py                          # asyncpg connection pool
+│   ├── ingestion/
+│   │   ├── pdf_extractor.py                   # pdfplumber → PagedText[]
+│   │   ├── chunker.py                         # Sentence-aware chunking with overlap
+│   │   ├── embedder.py                        # OpenAI text-embedding-3-small
+│   │   └── upload.py                          # Orchestrates extract → chunk → embed → store
+│   ├── tools/
+│   │   ├── __init__.py                        # TOOL_DEFINITIONS + dispatch_tool()
+│   │   ├── search_documents.py
+│   │   ├── extract_entities.py
+│   │   ├── build_timeline.py
+│   │   ├── propose_angle.py
+│   │   └── haiku_utils.py                     # Shared Haiku client + JSON parsing
+│   ├── agent/
+│   │   ├── investigator.py                    # Async generator tool-use loop
+│   │   └── prompts.py                         # WorkspaceContext + system/user prompts
+│   └── routers/
+│       ├── workspaces.py                      # POST /workspaces, POST /workspaces/{id}/upload
+│       ├── investigate.py                     # POST /investigate — SSE stream
+│       ├── angles.py                          # PATCH /angles/{id}
+│       └── runs.py                            # GET /runs/{id}
+├── app/                                       # Next.js frontend (port 3000)
 │   ├── layout.tsx
 │   ├── page.tsx                               # Home — list workspaces, create new
 │   ├── globals.css
-│   ├── workspace/[workspaceId]/
-│   │   └── page.tsx                           # Investigation workspace
-│   └── api/
-│       ├── workspaces/
-│       │   ├── route.ts                       # GET list, POST create
-│       │   └── [workspaceId]/
-│       │       ├── route.ts                   # GET workspace detail
-│       │       └── upload/route.ts            # POST add documents
-│       ├── investigate/route.ts               # POST trigger run (SSE stream)
-│       └── angles/
-│           └── [angleId]/route.ts             # PATCH update angle status
+│   └── workspace/[workspaceId]/
+│       └── page.tsx                           # Investigation workspace
 ├── components/
 │   ├── WorkspaceBoard.tsx                     # Angle card grid + triage controls
 │   ├── AngleCard.tsx                          # Single angle with evidence
@@ -167,26 +200,8 @@ foialens/
 │   ├── EntityMap.tsx                          # Accumulated entity list
 │   └── Timeline.tsx                           # Accumulated timeline
 ├── lib/
-│   ├── db/
-│   │   ├── client.ts
-│   │   └── schema.sql
-│   ├── ingestion/
-│   │   ├── pdf-extractor.ts
-│   │   ├── chunker.ts
-│   │   ├── embedder.ts
-│   │   └── upload.ts
-│   ├── tools/
-│   │   ├── index.ts
-│   │   ├── search-documents.ts
-│   │   ├── extract-entities.ts
-│   │   ├── build-timeline.ts
-│   │   └── propose-angle.ts                  # Agent proposes a story angle
-│   ├── agent/
-│   │   ├── investigator.ts                   # Agentic loop
-│   │   └── prompts.ts                        # Mode-specific system prompts
-│   └── types.ts
-├── scripts/
-│   └── seed.ts
+│   └── db/
+│       └── schema.sql                         # Shared PostgreSQL schema
 ├── docs/
 │   ├── SPEC.md
 │   ├── DATA_MODEL.md

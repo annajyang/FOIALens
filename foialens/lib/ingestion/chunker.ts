@@ -46,14 +46,12 @@ function tagSentences(pages: PagedText[]): TaggedSentence[] {
 }
 
 function splitSentences(text: string): string[] {
-  // Split on [.!?] followed by whitespace + an uppercase letter, quote, or digit.
   // Lookbehind is safe — Node 18+ supports it.
-  const parts = text.split(/(?<=[.!?])\s+(?=[A-Z0-9"'“])/);
+  const parts = text.split(/(?<=[.!?])\s+(?=[A-Z0-9”'”])/);
   const merged: string[] = [];
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
-    // Check if the last word of this part is a known abbreviation.
     const lastWord = part
       .trimEnd()
       .split(/\s+/)
@@ -63,7 +61,6 @@ function splitSentences(text: string): string[] {
       .replace(/\.$/, '');
 
     if (lastWord && ABBREVS.has(lastWord) && i + 1 < parts.length) {
-      // Merge with the next part — this period belonged to an abbreviation.
       parts[i + 1] = part + ' ' + parts[i + 1];
     } else {
       merged.push(part);
@@ -93,7 +90,6 @@ function groupIntoChunks(sentences: TaggedSentence[]): RawChunk[] {
       tokenCount: Math.round(content.length / 4),
     });
 
-    // Carry the tail of the buffer forward for overlap.
     let overlapLen = 0;
     let cutoff = buffer.length - 1;
     while (cutoff > 0 && overlapLen < OVERLAP_CHARS) {
@@ -105,9 +101,6 @@ function groupIntoChunks(sentences: TaggedSentence[]): RawChunk[] {
   };
 
   for (const sentence of sentences) {
-    // Flush before adding if this sentence would push us over the target.
-    // The guard `buffer.length > 0` ensures we never emit an empty chunk,
-    // and that a single very-long sentence still gets included (as its own chunk).
     if (bufferLen + sentence.text.length > TARGET_CHARS && buffer.length > 0) {
       flush();
     }
