@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -19,9 +20,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FOIALens API", lifespan=lifespan)
 
+_frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[_frontend_url],
     allow_methods=["*"],
     allow_headers=["*"],
 )
