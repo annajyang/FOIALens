@@ -21,6 +21,8 @@ async def lifespan(app: FastAPI):
 
 async def _migrate():
     from db.client import pool
+    from ingestion.embedder import embed_texts
+
     await pool().execute("""
         ALTER TABLE workspaces
             ADD COLUMN IF NOT EXISTS guest_token UUID,
@@ -31,6 +33,26 @@ async def _migrate():
         ALTER TABLE documents
             ADD COLUMN IF NOT EXISTS file_key TEXT;
     """)
+
+    # Ensure the embedding column dimension matches the actual model output.
+    try:
+        test = await embed_texts(["ping"])
+        dim = len(test[0])
+        row = await pool().fetchrow(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'chunks'::regclass AND attname = 'embedding'"
+        )
+        current_dim = row["atttypmod"] if row else None
+        if current_dim != dim:
+            print(f"[migrate] resizing embedding column {current_dim} → {dim}", flush=True)
+            await pool().execute(f"""
+                DROP INDEX IF EXISTS idx_chunks_embedding;
+                ALTER TABLE chunks ALTER COLUMN embedding TYPE vector({dim});
+                CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON chunks
+                    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+            """)
+    except Exception as e:
+        print(f"[migrate] embedding dimension check skipped: {e}", flush=True)
 
 
 app = FastAPI(title="FOIALens API", lifespan=lifespan)
