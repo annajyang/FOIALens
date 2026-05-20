@@ -1,5 +1,3 @@
-import json
-
 from db.client import pool
 
 
@@ -16,7 +14,7 @@ async def propose_angle(input: dict, workspace_id: str, run_id: str) -> dict:
         input["summary"],
         input["newsworthiness"],
         input["angleType"],
-        json.dumps(input["evidence"]),
-        json.dumps(input["citations"]),
+        input["evidence"],
+        input["citations"],
     )
     return {"angleId": str(row["id"]), "accepted": True}

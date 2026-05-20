@@ -79,7 +79,7 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                         "UPDATE investigation_runs "
                         "SET status = 'done', summary = $1, trace = $2::jsonb, completed_at = NOW() "
                         "WHERE id = $3",
-                        final_text or None, json.dumps(trace), params.run_id,
+                        final_text or None, trace, params.run_id,
                     ),
                     pool().execute(
                         "UPDATE workspaces SET status = 'active', updated_at = NOW() WHERE id = $1",
@@ -145,7 +145,7 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                 "UPDATE investigation_runs "
                 "SET status = 'error', error = $1, trace = $2::jsonb, completed_at = NOW() "
                 "WHERE id = $3",
-                message, json.dumps(trace), params.run_id,
+                message, trace, params.run_id,
             ),
             pool().execute(
                 "UPDATE workspaces SET status = 'active', updated_at = NOW() WHERE id = $1",
@@ -202,8 +202,8 @@ async def _merge_into_workspace(
 
     await pool().execute(
         "UPDATE workspaces SET entities = $1::jsonb, timeline = $2::jsonb, updated_at = NOW() WHERE id = $3",
-        json.dumps(merged_entities),
-        json.dumps(merged_timeline),
+        merged_entities,
+        merged_timeline,
         workspace_id,
     )
 
