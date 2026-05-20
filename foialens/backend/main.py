@@ -28,6 +28,8 @@ async def _migrate():
             ADD COLUMN IF NOT EXISTS expires_at   TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days');
         CREATE INDEX IF NOT EXISTS idx_workspaces_guest_token ON workspaces(guest_token);
         CREATE INDEX IF NOT EXISTS idx_workspaces_owner_email ON workspaces(owner_email);
+        ALTER TABLE documents
+            ADD COLUMN IF NOT EXISTS file_key TEXT;
     """)
 
 
