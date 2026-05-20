@@ -1,6 +1,6 @@
 import asyncio
 
-from .haiku_utils import HAIKU, _anthropic, extract_text, parse_json
+from .haiku_utils import HAIKU, _openai, extract_text, parse_json
 from .search_documents import search_documents
 
 TIMELINE_QUERIES = [
@@ -19,27 +19,32 @@ async def build_timeline(workspace_id: str) -> dict:
 
     context = "\n\n---\n\n".join(f"[p.{c['startPage']}] {c['content']}" for c in chunks)
 
-    response = await _anthropic().messages.create(
+    response = await _openai().chat.completions.create(
         model=HAIKU,
         max_tokens=2048,
-        system=(
-            "You are a precise information extraction system. "
-            "Return ONLY valid JSON with no prose, preamble, or markdown fences."
-        ),
-        messages=[{
-            "role": "user",
-            "content": (
-                "Extract every dated event from the document text below.\n"
-                "Only include events that have a specific or approximate date attached.\n\n"
-                "Return a JSON array where each element has exactly these fields:\n"
-                '- "date": ISO 8601 string (e.g. "2021-03-15") or "circa YYYY" (string)\n'
-                '- "description": what happened (string)\n'
-                '- "significance": why this event matters to an investigation (string)\n'
-                '- "pageRefs": page numbers where this event appears (number[])\n'
-                '- "confidence": "high" if date is explicit, "medium" if inferred, "low" if approximate\n\n'
-                f"Document text:\n{context}\n\nReturn ONLY the JSON array."
-            ),
-        }],
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a precise information extraction system. "
+                    "Return ONLY valid JSON with no prose, preamble, or markdown fences."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Extract every dated event from the document text below.\n"
+                    "Only include events that have a specific or approximate date attached.\n\n"
+                    "Return a JSON array where each element has exactly these fields:\n"
+                    '- "date": ISO 8601 string (e.g. "2021-03-15") or "circa YYYY" (string)\n'
+                    '- "description": what happened (string)\n'
+                    '- "significance": why this event matters to an investigation (string)\n'
+                    '- "pageRefs": page numbers where this event appears (number[])\n'
+                    '- "confidence": "high" if date is explicit, "medium" if inferred, "low" if approximate\n\n'
+                    f"Document text:\n{context}\n\nReturn ONLY the JSON array."
+                ),
+            },
+        ],
     )
 
     parsed = parse_json(extract_text(response))

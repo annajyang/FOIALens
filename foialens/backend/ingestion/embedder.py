@@ -1,16 +1,19 @@
 import os
-import openai
+from openai import AsyncOpenAI
 
-EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_MODEL = os.getenv("DO_EMBEDDING_MODEL", "thenlper/gte-large")
 BATCH_SIZE = 100
 
-_client: openai.AsyncOpenAI | None = None
+_client: AsyncOpenAI | None = None
 
 
-def _openai() -> openai.AsyncOpenAI:
+def _openai() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        _client = AsyncOpenAI(
+            base_url="https://inference.do-ai.run/v1",
+            api_key=os.environ.get("DO_MODEL_ACCESS_KEY"),
+        )
     return _client
 
 

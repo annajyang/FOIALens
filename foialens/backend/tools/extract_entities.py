@@ -1,5 +1,5 @@
 from db.client import pool
-from .haiku_utils import HAIKU, _anthropic, extract_text, parse_json
+from .haiku_utils import HAIKU, _openai, extract_text, parse_json
 
 MAX_CHUNKS = 20
 
@@ -20,26 +20,31 @@ async def extract_entities(
 
     context = "\n\n---\n\n".join(f"[p.{r['start_page']}] {r['content']}" for r in chunks)
 
-    response = await _anthropic().messages.create(
+    response = await _openai().chat.completions.create(
         model=HAIKU,
         max_tokens=2048,
-        system=(
-            "You are a precise information extraction system. "
-            "Return ONLY valid JSON with no prose, preamble, or markdown fences."
-        ),
-        messages=[{
-            "role": "user",
-            "content": (
-                "Extract every named entity from the document text below.\n\n"
-                "Return a JSON array where each element has exactly these fields:\n"
-                '- "name": entity name (string)\n'
-                '- "type": one of "person" | "organization" | "date" | "amount" | "location"\n'
-                '- "mentions": approximate count of times mentioned (number)\n'
-                '- "pageRefs": page numbers where found (number[])\n'
-                '- "representativeContext": one sentence showing the entity in context (string)\n\n'
-                f"Document text:\n{context}\n\nReturn ONLY the JSON array."
-            ),
-        }],
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a precise information extraction system. "
+                    "Return ONLY valid JSON with no prose, preamble, or markdown fences."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Extract every named entity from the document text below.\n\n"
+                    "Return a JSON array where each element has exactly these fields:\n"
+                    '- "name": entity name (string)\n'
+                    '- "type": one of "person" | "organization" | "date" | "amount" | "location"\n'
+                    '- "mentions": approximate count of times mentioned (number)\n'
+                    '- "pageRefs": page numbers where found (number[])\n'
+                    '- "representativeContext": one sentence showing the entity in context (string)\n\n'
+                    f"Document text:\n{context}\n\nReturn ONLY the JSON array."
+                ),
+            },
+        ],
     )
 
     parsed = parse_json(extract_text(response))

@@ -6,11 +6,11 @@ from typing import AsyncGenerator
 
 from db.client import pool
 from tools import TOOL_DEFINITIONS, dispatch_tool
-from tools.haiku_utils import _anthropic
+from tools.haiku_utils import DO_MODEL, _openai
 from .prompts import WorkspaceContext, build_system_prompt, build_user_turn
 
-SONNET = "claude-sonnet-4-6"
-MAX_ITERATIONS = 30
+SONNET = DO_MODEL
+MAX_ITERATIONS = 10
 
 
 @dataclass
@@ -43,20 +43,29 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
 
     try:
         for _ in range(MAX_ITERATIONS):
-            response = await _anthropic().messages.create(
+            response = await _openai().chat.completions.create(
                 model=SONNET,
                 max_tokens=8192,
-                system=build_system_prompt(params.mode, params.prompt),
+                messages=[
+                    {"role": "system", "content": build_system_prompt(params.mode, params.prompt)},
+                    *messages,
+                ],
                 tools=TOOL_DEFINITIONS,
-                messages=messages,
             )
 
-            messages.append({"role": "assistant", "content": response.content})
+            msg = response.choices[0].message
+            finish_reason = response.choices[0].finish_reason
 
-            if response.stop_reason in ("end_turn", "max_tokens"):
-                final_text = "\n".join(
-                    b.text for b in response.content if hasattr(b, "text")
-                ).strip()
+            assistant_msg: dict = {"role": "assistant", "content": msg.content}
+            if msg.tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in msg.tool_calls
+                ]
+            messages.append(assistant_msg)
+
+            if finish_reason in ("stop", "length"):
+                final_text = (msg.content or "").strip()
 
                 trace.append({"type": "final", "content": final_text, "timestamp": _now()})
 
@@ -88,48 +97,44 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                 }
                 return
 
-            if response.stop_reason == "tool_use":
-                tool_results = []
+            if finish_reason == "tool_calls" and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    name = tc.function.name
+                    input_data = json.loads(tc.function.arguments)
 
-                for block in response.content:
-                    if block.type != "tool_use":
-                        continue
-
-                    yield {"type": "status", "message": f"Calling {block.name}…"}
+                    yield {"type": "status", "message": f"Calling {name}…"}
 
                     result = await dispatch_tool(
-                        block.name, block.input,
+                        name, input_data,
                         params.workspace_id, params.run_id, known_entity_names,
                     )
 
-                    if block.name == "extract_entities":
+                    if name == "extract_entities":
                         extracted = result.get("entities", [])
                         for e in extracted:
                             known_entity_names.add(e["name"].lower())
                         acc_entities = _merge_entities(acc_entities, extracted)
 
-                    if block.name == "build_timeline":
+                    if name == "build_timeline":
                         acc_events = _merge_events(acc_events, result.get("events", []))
 
-                    if block.name == "propose_angle":
+                    if name == "propose_angle":
                         angle = await _fetch_angle(result["angleId"])
                         if angle:
                             yield {"type": "angle_proposed", "angle": angle}
                             angle_count += 1
 
                     timestamp = _now()
-                    result_summary = _summarize(block.name, result)
+                    result_summary = _summarize(name, result)
 
-                    yield {"type": "trace", "tool": block.name, "input": dict(block.input), "resultSummary": result_summary, "timestamp": timestamp}
-                    trace.append({"type": "tool_call", "tool": block.name, "input": dict(block.input), "resultSummary": result_summary, "timestamp": timestamp})
+                    yield {"type": "trace", "tool": name, "input": input_data, "resultSummary": result_summary, "timestamp": timestamp}
+                    trace.append({"type": "tool_call", "tool": name, "input": input_data, "resultSummary": result_summary, "timestamp": timestamp})
 
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
                         "content": json.dumps(result),
                     })
-
-                messages.append({"role": "user", "content": tool_results})
 
         raise RuntimeError("Investigation exceeded the maximum iteration limit.")
 

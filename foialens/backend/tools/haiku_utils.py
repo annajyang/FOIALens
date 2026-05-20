@@ -2,25 +2,26 @@ import json
 import os
 import re
 
-import anthropic
+from openai import AsyncOpenAI
 
-HAIKU = "claude-haiku-4-5-20251001"
+DO_MODEL = os.getenv("DO_MODEL", "anthropic-claude-haiku-4-5-20251001")
+HAIKU = DO_MODEL
 
-_client: anthropic.AsyncAnthropic | None = None
+_client: AsyncOpenAI | None = None
 
 
-def _anthropic() -> anthropic.AsyncAnthropic:
+def _openai() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        _client = AsyncOpenAI(
+            base_url="https://inference.do-ai.run/v1",
+            api_key=os.environ.get("DO_MODEL_ACCESS_KEY"),
+        )
     return _client
 
 
-def extract_text(response: anthropic.types.Message) -> str:
-    for block in response.content:
-        if block.type == "text":
-            return block.text
-    return ""
+def extract_text(response) -> str:
+    return response.choices[0].message.content or ""
 
 
 def parse_json(text: str):

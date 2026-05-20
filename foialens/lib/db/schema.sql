@@ -6,13 +6,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ─────────────────────────────────────────
 -- workspaces
--- One per investigation. Accumulates entities and timeline across all runs.
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS workspaces (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name       TEXT NOT NULL,
   status     TEXT NOT NULL DEFAULT 'ingesting',
-             -- ingesting | ready | investigating | active
   entities   JSONB NOT NULL DEFAULT '[]',
   timeline   JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -21,7 +19,6 @@ CREATE TABLE IF NOT EXISTS workspaces (
 
 -- ─────────────────────────────────────────
 -- documents
--- One row per uploaded PDF.
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS documents (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -36,7 +33,6 @@ CREATE INDEX IF NOT EXISTS idx_documents_workspace ON documents(workspace_id);
 
 -- ─────────────────────────────────────────
 -- chunks
--- One row per text chunk. embedding is the pgvector column.
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS chunks (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -47,29 +43,25 @@ CREATE TABLE IF NOT EXISTS chunks (
   end_page     INTEGER NOT NULL,
   chunk_index  INTEGER NOT NULL,
   token_count  INTEGER,
-  embedding    vector(1536),
+  embedding    vector(1024),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_workspace ON chunks(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_document  ON chunks(document_id);
--- Build this index after bulk inserts, not before.
--- lists=100 suits corpora up to ~1M chunks; raise if needed.
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON chunks
   USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 
 -- ─────────────────────────────────────────
 -- investigation_runs
--- One per agent invocation. A workspace can have many.
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS investigation_runs (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  mode         TEXT NOT NULL,   -- exploratory | directed
+  mode         TEXT NOT NULL,
   prompt       TEXT,
   status       TEXT NOT NULL DEFAULT 'investigating',
-               -- investigating | done | error
   summary      TEXT,
   trace        JSONB NOT NULL DEFAULT '[]',
   error        TEXT,
@@ -81,8 +73,6 @@ CREATE INDEX IF NOT EXISTS idx_runs_workspace ON investigation_runs(workspace_id
 
 -- ─────────────────────────────────────────
 -- angles
--- One per story angle proposed by the agent.
--- Journalist triages each one (proposed → pinned | dismissed).
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS angles (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -90,12 +80,11 @@ CREATE TABLE IF NOT EXISTS angles (
   run_id         UUID NOT NULL REFERENCES investigation_runs(id) ON DELETE CASCADE,
   title          TEXT NOT NULL,
   summary        TEXT NOT NULL,
-  newsworthiness TEXT NOT NULL,  -- high | medium | low
-  angle_type     TEXT NOT NULL,  -- financial | personnel | timeline | contradiction | omission | relationship | other
+  newsworthiness TEXT NOT NULL,
+  angle_type     TEXT NOT NULL,
   evidence       JSONB NOT NULL DEFAULT '[]',
   citations      JSONB NOT NULL DEFAULT '[]',
   status         TEXT NOT NULL DEFAULT 'proposed',
-                 -- proposed | pinned | dismissed
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -105,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_angles_run       ON angles(run_id);
 CREATE INDEX IF NOT EXISTS idx_angles_status    ON angles(workspace_id, status);
 
 -- ─────────────────────────────────────────
--- updated_at trigger (workspaces + angles)
+-- updated_at trigger
 -- ─────────────────────────────────────────
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$

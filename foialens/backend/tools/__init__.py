@@ -5,74 +5,86 @@ from .propose_angle import propose_angle
 
 TOOL_DEFINITIONS = [
     {
-        "name": "search_documents",
-        "description": (
-            "Semantic search over document chunks in the workspace. "
-            "Run multiple targeted searches with specific queries rather than one broad search. "
-            "Returns the most relevant chunks with page numbers."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Specific search query — more targeted queries return better results"},
-                "limit": {"type": "number", "description": "Max results to return (default 10, max 20)"},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "extract_entities",
-        "description": (
-            "Extract named entities — people, organizations, dates, dollar amounts, locations — "
-            "from the document corpus or a specific document."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "scope": {
-                    "type": "string",
-                    "description": 'Pass "full" to extract from the entire workspace corpus, or a document ID to limit to one document.',
+        "type": "function",
+        "function": {
+            "name": "search_documents",
+            "description": (
+                "Semantic search over document chunks in the workspace. "
+                "Run multiple targeted searches with specific queries rather than one broad search. "
+                "Returns the most relevant chunks with page numbers."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Specific search query — more targeted queries return better results"},
+                    "limit": {"type": "number", "description": "Max results to return (default 10, max 20)"},
                 },
+                "required": ["query"],
             },
-            "required": [],
         },
     },
     {
-        "name": "build_timeline",
-        "description": (
-            "Reconstruct a chronological timeline of events from dated references across the documents. "
-            "Returns events sorted oldest-first with confidence ratings."
-        ),
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "propose_angle",
-        "description": (
-            "Propose a story angle you have found evidence for. "
-            "Call this as soon as you have enough evidence to support a distinct, newsworthy angle — "
-            "do not wait until the end. Each call creates an angle card visible to the journalist in real time."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title":          {"type": "string", "description": "Working headline, approximately 8 words"},
-                "summary":        {"type": "string", "description": "2–3 sentence explanation of why this is newsworthy"},
-                "newsworthiness": {"type": "string", "enum": ["high", "medium", "low"]},
-                "angleType":      {"type": "string", "enum": ["financial", "personnel", "timeline", "contradiction", "omission", "relationship", "other"]},
-                "evidence":       {"type": "array", "items": {"type": "string"}, "description": "Key supporting facts with inline (p. N) citations"},
-                "citations": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "page":    {"type": "number"},
-                            "excerpt": {"type": "string", "description": "Verbatim text from the document"},
-                        },
-                        "required": ["page", "excerpt"],
+        "type": "function",
+        "function": {
+            "name": "extract_entities",
+            "description": (
+                "Extract named entities — people, organizations, dates, dollar amounts, locations — "
+                "from the document corpus or a specific document."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "scope": {
+                        "type": "string",
+                        "description": 'Pass "full" to extract from the entire workspace corpus, or a document ID to limit to one document.',
                     },
                 },
+                "required": [],
             },
-            "required": ["title", "summary", "newsworthiness", "angleType", "evidence", "citations"],
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "build_timeline",
+            "description": (
+                "Reconstruct a chronological timeline of events from dated references across the documents. "
+                "Returns events sorted oldest-first with confidence ratings."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_angle",
+            "description": (
+                "Propose a story angle you have found evidence for. "
+                "Call this as soon as you have enough evidence to support a distinct, newsworthy angle — "
+                "do not wait until the end. Each call creates an angle card visible to the journalist in real time."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title":          {"type": "string", "description": "Working headline, approximately 8 words"},
+                    "summary":        {"type": "string", "description": "2–3 sentence explanation of why this is newsworthy"},
+                    "newsworthiness": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "angleType":      {"type": "string", "enum": ["financial", "personnel", "timeline", "contradiction", "omission", "relationship", "other"]},
+                    "evidence":       {"type": "array", "items": {"type": "string"}, "description": "Key supporting facts with inline (p. N) citations"},
+                    "citations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "page":    {"type": "number"},
+                                "excerpt": {"type": "string", "description": "Verbatim text from the document"},
+                            },
+                            "required": ["page", "excerpt"],
+                        },
+                    },
+                },
+                "required": ["title", "summary", "newsworthiness", "angleType", "evidence", "citations"],
+            },
         },
     },
 ]
