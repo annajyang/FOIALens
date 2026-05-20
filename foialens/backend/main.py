@@ -14,8 +14,21 @@ from routers import workspaces, investigate, angles, runs
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_pool()
+    await _migrate()
     yield
     await close_pool()
+
+
+async def _migrate():
+    from db.client import pool
+    await pool().execute("""
+        ALTER TABLE workspaces
+            ADD COLUMN IF NOT EXISTS guest_token UUID,
+            ADD COLUMN IF NOT EXISTS owner_email  TEXT,
+            ADD COLUMN IF NOT EXISTS expires_at   TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days');
+        CREATE INDEX IF NOT EXISTS idx_workspaces_guest_token ON workspaces(guest_token);
+        CREATE INDEX IF NOT EXISTS idx_workspaces_owner_email ON workspaces(owner_email);
+    """)
 
 
 app = FastAPI(title="FOIALens API", lifespan=lifespan)
