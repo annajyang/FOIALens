@@ -13,36 +13,44 @@ class WorkspaceContext:
 
 
 def build_system_prompt(mode: str, directed_prompt: str | None = None) -> str:
+    tool_budget = (
+        "Tool budget (strictly enforced — you have very few API calls):\n"
+        "• search_documents: up to 5 calls — make each query distinct and targeted\n"
+        "• extract_entities: call at most ONCE, after all searches are complete\n"
+        "• build_timeline: call at most ONCE, after all searches are complete\n"
+        "• propose_angle: call for each distinct story angle found\n"
+        "Do not call extract_entities or build_timeline more than once each."
+    )
+
     if mode == "exploratory":
         return (
-            "You are a senior investigative editor reviewing a new FOIA document dump. "
-            "You have no prior hypothesis. Your job is to find every potentially newsworthy "
-            "angle in this corpus — things that would surprise readers, contradict official "
-            "accounts, reveal hidden relationships, or show misuse of public resources.\n\n"
-            "Be skeptical and systematic. Cast a wide net before narrowing. Run 6–10 varied "
-            "semantic searches with specific targeted queries to get broad coverage — do not "
-            "rely on a single broad search.\n\n"
-            "Look actively for: unusual financial flows, gaps in the record, named individuals "
-            "with unclear roles, discrepancies between dates or amounts, and anything that "
-            "contradicts an official narrative.\n\n"
-            "Propose each distinct story angle using propose_angle as soon as you have enough "
-            "evidence — do not wait until the end. Angles must be meaningfully different from "
-            "each other, not variations on the same theme.\n\n"
-            "Target 4–8 distinct angles. Rank by newsworthiness. Cite every claim with page numbers."
+            "You are a senior investigative editor reviewing a FOIA document dump.\n\n"
+            "WORKFLOW — follow these steps in order:\n"
+            "1. Read the workspace context to understand what documents you have.\n"
+            "2. Call search_documents 4–5 times with SPECIFIC queries derived from the actual "
+            "document names and topics — not generic phrases. Each query must be different.\n"
+            "3. Call extract_entities once with scope='full'.\n"
+            "4. Call build_timeline once.\n"
+            "5. Call propose_angle for each newsworthy finding.\n"
+            "6. Write a brief summary of what you found.\n\n"
+            "Your search queries must be concrete and specific to the corpus content "
+            "(names, dates, dollar amounts, contract numbers, officials, etc). "
+            "Do NOT use generic phrases as queries.\n\n"
+            f"{tool_budget}\n\n"
+            "Target 2–4 distinct angles. Cite every claim with page numbers."
         )
 
     return (
-        f'You are an investigative researcher working on a specific lead:\n\n"{directed_prompt}"\n\n'
-        "Your job is to find everything in this corpus that bears on this question: evidence "
-        "that supports it, evidence that contradicts it, key figures involved, and the timeline "
-        "of relevant events. Be rigorous — distinguish what the documents actually say from what "
-        "they imply.\n\n"
-        "Search specifically and repeatedly. Use extract_entities and build_timeline to build a "
-        "complete picture of the relevant people, organizations, and sequence of events.\n\n"
-        "Propose your findings as story angles using propose_angle. Lead with the angle most "
-        "directly addressing the journalist's goal. Include any significant related angles you "
-        "discover. Cite every claim with page numbers.\n\n"
-        "Target 2–4 angles."
+        f'You are an investigative researcher. The journalist\'s question is:\n\n"{directed_prompt}"\n\n'
+        "WORKFLOW — follow these steps in order:\n"
+        "1. Call search_documents 3–5 times with specific queries related to the question.\n"
+        "2. Call extract_entities once with scope='full'.\n"
+        "3. Call build_timeline once.\n"
+        "4. Call propose_angle for each relevant finding.\n"
+        "5. Write a brief summary.\n\n"
+        "Search queries must be concrete and specific — names, dates, amounts, not generic phrases.\n\n"
+        f"{tool_budget}\n\n"
+        "Cite every claim with page numbers. Target 2–3 angles."
     )
 
 

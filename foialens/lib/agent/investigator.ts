@@ -9,7 +9,7 @@ import type {
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SONNET = 'claude-sonnet-4-6';
-const MAX_ITERATIONS = 30;
+const MAX_ITERATIONS = 5;
 
 export interface InvestigationParams {
   workspaceId: string;

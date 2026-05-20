@@ -1,6 +1,6 @@
 import asyncio
 
-from .haiku_utils import HAIKU, _openai, extract_text, parse_json
+from .haiku_utils import HAIKU, call_with_backoff, extract_text, parse_json
 from .search_documents import search_documents
 
 TIMELINE_QUERIES = [
@@ -19,7 +19,7 @@ async def build_timeline(workspace_id: str) -> dict:
 
     context = "\n\n---\n\n".join(f"[p.{c['startPage']}] {c['content']}" for c in chunks)
 
-    response = await _openai().chat.completions.create(
+    response = await call_with_backoff(
         model=HAIKU,
         max_tokens=2048,
         messages=[

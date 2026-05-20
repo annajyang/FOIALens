@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS documents (
   filename     TEXT NOT NULL,
   page_count   INTEGER,
   byte_size    INTEGER,
+  file_key     TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

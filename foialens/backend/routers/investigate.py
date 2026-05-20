@@ -70,6 +70,18 @@ async def investigate(body: InvestigateRequest):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        finally:
+            # Guarantee workspace is never left stuck in 'investigating' status.
+            await pool().execute(
+                "UPDATE workspaces SET status = 'active', updated_at = NOW() "
+                "WHERE id = $1 AND status = 'investigating'",
+                body.workspaceId,
+            )
+            await pool().execute(
+                "UPDATE investigation_runs SET status = 'error', error = 'interrupted', completed_at = NOW() "
+                "WHERE id = $1 AND status = 'investigating'",
+                run_id,
+            )
 
     return StreamingResponse(
         event_stream(),

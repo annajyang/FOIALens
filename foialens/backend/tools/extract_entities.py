@@ -1,5 +1,5 @@
 from db.client import pool
-from .haiku_utils import HAIKU, _openai, extract_text, parse_json
+from .haiku_utils import HAIKU, call_with_backoff, extract_text, parse_json
 
 MAX_CHUNKS = 20
 
@@ -20,7 +20,7 @@ async def extract_entities(
 
     context = "\n\n---\n\n".join(f"[p.{r['start_page']}] {r['content']}" for r in chunks)
 
-    response = await _openai().chat.completions.create(
+    response = await call_with_backoff(
         model=HAIKU,
         max_tokens=2048,
         messages=[

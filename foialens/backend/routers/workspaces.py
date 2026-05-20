@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from db.client import pool
 from ingestion.upload import create_workspace_and_ingest, ingest_files
+from storage.spaces import presigned_url
 
 router = APIRouter()
 
@@ -67,7 +68,8 @@ async def get_workspace(workspace_id: str):
         pool().fetchval("SELECT count(*)::int FROM chunks WHERE workspace_id = $1", workspace_id),
         pool().fetch("SELECT * FROM angles WHERE workspace_id = $1 ORDER BY created_at DESC", workspace_id),
         pool().fetch(
-            "SELECT id, mode, prompt, status, started_at, completed_at "
+            "SELECT id, mode, prompt, status, started_at, completed_at, "
+            "CASE WHEN row_number() OVER (ORDER BY started_at DESC) = 1 THEN trace ELSE NULL END AS trace "
             "FROM investigation_runs WHERE workspace_id = $1 ORDER BY started_at DESC",
             workspace_id,
         ),
@@ -99,6 +101,7 @@ async def get_workspace(workspace_id: str):
                     "status": r["status"],
                     "startedAt": r["started_at"].isoformat(),
                     "completedAt": r["completed_at"].isoformat() if r["completed_at"] else None,
+                    "trace": r["trace"] or [],
                 }
                 for r in runs
             ],
@@ -170,6 +173,20 @@ async def upload_to_workspace(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/documents/{doc_id}/url")
+async def get_document_url(doc_id: str):
+    try:
+        row = await pool().fetchrow("SELECT file_key FROM documents WHERE id = $1", doc_id)
+    except asyncpg.DataError:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not row or not row["file_key"]:
+        raise HTTPException(status_code=404, detail="No file stored for this document.")
+    try:
+        return {"url": presigned_url(row["file_key"])}
+    except KeyError as e:
+        raise HTTPException(status_code=503, detail=f"File storage not configured: missing env var {e}")
 
 
 def _validate_files(files: list[UploadFile]) -> None:

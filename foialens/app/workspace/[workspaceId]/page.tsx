@@ -158,7 +158,12 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     api.getWorkspace(workspaceId)
-      .then(ws => { setWorkspace(ws); setAngles(ws.angles); })
+      .then(ws => {
+        setWorkspace(ws);
+        setAngles(ws.angles);
+        const lastTrace = ws.runs?.[0]?.trace;
+        if (lastTrace?.length) setTrace(lastTrace);
+      })
       .catch(e => setLoadError(e.message));
   }, [workspaceId]);
 
@@ -214,6 +219,7 @@ export default function WorkspacePage() {
             setStatusMsg(null);
             const fresh = await api.getWorkspace(workspaceId);
             setWorkspace(fresh); setAngles(fresh.angles);
+            if (fresh.runs?.[0]?.trace?.length) setTrace(fresh.runs[0].trace);
           } else if (event.type === 'error') {
             setRunError(event.message);
           }
@@ -448,9 +454,9 @@ export default function WorkspacePage() {
             />
           )}
           {tool === 'entities' && <EntitiesPane entities={workspace.entities} />}
-          {tool === 'timeline' && <TimelinePane events={workspace.timeline} onOpenDoc={(page) => {
-            const doc = findDocForPage(workspace.documents, page);
-            if (doc) openViewer(doc.filename, [page], page);
+          {tool === 'timeline' && <TimelinePane events={workspace.timeline} onOpenDoc={(pages) => {
+            const doc = findDocForPage(workspace.documents, pages[0]);
+            if (doc) openViewer(doc.filename, pages, pages[0]);
           }} />}
           {tool === 'trace' && <TracePane trace={trace} running={running} />}
         </main>
@@ -466,7 +472,7 @@ export default function WorkspacePage() {
           }}
           onOpenChat={openChat}
           hasChat={selectedAngle ? !!chatThreads[selectedAngle.id] : false}
-          chatMsgCount={selectedAngle ? (chatThreads[selectedAngle.id]?.length ?? 0) : 0}
+          chatMsgCount={selectedAngle ? Math.max(0, (chatThreads[selectedAngle.id]?.length ?? 0) - 2) : 0}
         />
       </div>
 
@@ -556,6 +562,7 @@ export default function WorkspacePage() {
         focusPage={viewer.focus}
         onClose={closeViewer}
         citations={selectedAngle?.citations ?? []}
+        documents={workspace.documents}
       />
 
       {/* Chat dock */}
@@ -610,7 +617,7 @@ function AngleGrid({ angles, running, selectedId, onSelect, onPatch, onOpenDoc, 
           onOpenDoc={(page) => { const d = findDocForPage(documents, page); if (d) onOpenDoc(d.filename, a.citations.map(c => c.page), page); }}
           onOpenChat={onOpenChat}
           hasChat={!!chatThreads[a.id]}
-          chatMsgCount={chatThreads[a.id]?.length ?? 0}
+          chatMsgCount={Math.max(0, (chatThreads[a.id]?.length ?? 0) - 2)}
         />
       ))}
 
@@ -864,7 +871,7 @@ function EntitiesPane({ entities }: { entities: WorkspaceDetail['entities'] }) {
 
 /* ── Timeline pane ───────────────────────────────────────────────────────── */
 
-function TimelinePane({ events, onOpenDoc }: { events: WorkspaceDetail['timeline']; onOpenDoc: (page: number) => void }) {
+function TimelinePane({ events, onOpenDoc }: { events: WorkspaceDetail['timeline']; onOpenDoc: (pages: number[]) => void }) {
   if (events.length === 0) return (
     <div style={{ padding: '40px 24px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--fg-mute)', letterSpacing: '0.06em' }}>
       No timeline events yet. Run an investigation first.
@@ -878,8 +885,8 @@ function TimelinePane({ events, onOpenDoc }: { events: WorkspaceDetail['timeline
           <div className={`tl-marker ${t.confidence}`} />
           <div
             className="tl-body doc-link"
-            onClick={() => t.pageRefs.length > 0 && onOpenDoc(t.pageRefs[0])}
-            title={t.pageRefs.length > 0 ? `Open page ${t.pageRefs[0]}` : ''}
+            onClick={() => t.pageRefs.length > 0 && onOpenDoc(t.pageRefs)}
+            title={t.pageRefs.length > 0 ? `Open pages ${t.pageRefs.join(', ')}` : ''}
           >
             <div className="tl-label">{t.description}</div>
             <div className="tl-ref">
@@ -1102,45 +1109,40 @@ function PageContent({ type, page, highlight }: { type: DocType; page: number; h
 
 import type { Citation } from '../../../lib/types';
 
-function DocViewer({ open, doc, pages, focusPage, onClose, citations }: {
+function DocViewer({ open, doc, pages, focusPage, onClose, citations, documents }: {
   open: boolean;
   doc: string | null;
   pages: number[];
   focusPage: number;
   onClose: () => void;
   citations: Citation[];
+  documents: Array<{ id: string; filename: string; pageCount: number | null }>;
 }) {
-  const [current, setCurrent] = useState(focusPage || 1);
+  const [focusedPage, setFocusedPage] = useState(focusPage || 1);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [urlError, setUrlError] = useState(false);
 
-  useEffect(() => {
-    if (open) setCurrent(focusPage || pages?.[0] || 1);
-  }, [open, doc, focusPage]);
-
-  const totalPages = inferTotalPages(doc);
-  const dt = doc ? docTypeOf(doc) : 'report';
+  const docRecord = documents.find(d => d.filename === doc);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowRight') setCurrent(c => Math.min(c + 1, totalPages));
-      if (e.key === 'ArrowLeft') setCurrent(c => Math.max(c - 1, 1));
-    };
+    setFocusedPage(focusPage || pages?.[0] || 1);
+    setPdfUrl(null);
+    setUrlError(false);
+    if (!docRecord?.id) return;
+    api.getDocumentUrl(docRecord.id)
+      .then(({ url }) => setPdfUrl(url))
+      .catch(() => setUrlError(true));
+  }, [open, doc, focusPage]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, totalPages, onClose]);
+  }, [open, onClose]);
 
   const citedSet = useMemo(() => new Set(pages), [pages]);
-
-  const thumbPages = useMemo(() => {
-    const s = new Set([1, Math.min(totalPages, 10)]);
-    pages.forEach(p => s.add(p));
-    for (let d = -2; d <= 2; d++) { const p = current + d; if (p >= 1 && p <= totalPages) s.add(p); }
-    return Array.from(s).sort((a, b) => a - b);
-  }, [current, pages, totalPages]);
-
-  // Find highlight text for current page from citations
-  const highlight = citations.find(c => c.page === current)?.excerpt ?? null;
 
   if (!open) return null;
 
@@ -1152,20 +1154,22 @@ function DocViewer({ open, doc, pages, focusPage, onClose, citations }: {
             <span className="viewer-doc-ext">{docExt(doc ?? '')}</span>
             <div>
               <div className="viewer-doc-name">{docDisplayName(doc ?? '')}</div>
-              <div className="viewer-doc-meta">{totalPages} pages{citedSet.size > 0 ? ` · ${citedSet.size} cited` : ''}</div>
+              <div className="viewer-doc-meta">
+                {docRecord?.pageCount ? `${docRecord.pageCount} pages` : ''}
+                {citedSet.size > 0 ? ` · ${citedSet.size} cited` : ''}
+              </div>
             </div>
-          </div>
-          <div className="viewer-pager">
-            <button className="btn btn-sm" onClick={() => setCurrent(c => Math.max(1, c - 1))} disabled={current <= 1}>‹ Prev</button>
-            <span className="viewer-page-indicator"><span className="num">p.{current}</span><span className="of">/ {totalPages}</span></span>
-            <button className="btn btn-sm" onClick={() => setCurrent(c => Math.min(totalPages, c + 1))} disabled={current >= totalPages}>Next ›</button>
           </div>
           <div className="viewer-actions">
             {citedSet.size > 0 && (
               <span className="viewer-cited">
                 CITED:&nbsp;
                 {Array.from(citedSet).sort((a, b) => a - b).map(p => (
-                  <button key={p} className={`viewer-cite-jump ${current === p ? 'active' : ''}`} onClick={() => setCurrent(p)}>p.{p}</button>
+                  <button
+                    key={p}
+                    className={`viewer-cite-jump ${focusedPage === p ? 'active' : ''}`}
+                    onClick={() => setFocusedPage(p)}
+                  >p.{p}</button>
                 ))}
               </span>
             )}
@@ -1173,48 +1177,22 @@ function DocViewer({ open, doc, pages, focusPage, onClose, citations }: {
           </div>
         </div>
 
-        <div className="viewer-body">
-          <aside className="viewer-rail">
-            <div className="viewer-rail-h">PAGES</div>
-            <div className="viewer-thumbs">
-              {thumbPages.map((p, idx) => {
-                const showSep = idx > 0 && thumbPages[idx - 1] !== p - 1;
-                return (
-                  <React.Fragment key={p}>
-                    {showSep && <div className="viewer-thumb-sep">⋮</div>}
-                    <button
-                      className={`viewer-thumb ${current === p ? 'active' : ''} ${citedSet.has(p) ? 'cited' : ''}`}
-                      onClick={() => setCurrent(p)}
-                    >
-                      <div className="viewer-thumb-page"><MockPageMini cited={citedSet.has(p)} /></div>
-                      <div className="viewer-thumb-num">p.{p}{citedSet.has(p) && <span className="viewer-thumb-dot">●</span>}</div>
-                    </button>
-                  </React.Fragment>
-                );
-              })}
-            </div>
-          </aside>
-
-          <div className="viewer-canvas">
-            <div className="viewer-paper" key={current}>
-              <div className="page-header">
-                <div className="page-header-mark" />
-                <div>
-                  <div className="page-header-title">{DOC_LABELS[dt]}</div>
-                  <div className="page-header-sub">{docDisplayName(doc ?? '')}</div>
-                </div>
+        <div className="viewer-body" style={{ gridTemplateRows: '1fr' }}>
+          <div className="viewer-canvas" style={{ padding: 0, gridColumn: '1 / -1', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {urlError ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: 13 }}>
+                PDF not available — file storage not configured.
               </div>
-              <PageContent type={dt} page={current} highlight={highlight} />
-              <div className="page-footer">
-                <span>CITY OF [REDACTED] · PROCUREMENT RECORDS · FOIA RELEASE 2024-Q1</span>
-                <span>{current} / {totalPages}</span>
-              </div>
-            </div>
-            {highlight && (
-              <div className="viewer-source-note">
-                <div className="vsn-h">▌ EVIDENCE CITED FROM THIS PAGE</div>
-                <div className="vsn-quote">"{highlight}"</div>
-                <div className="vsn-foot">Source citation · page {current}</div>
+            ) : pdfUrl ? (
+              <iframe
+                key={focusedPage}
+                src={`${pdfUrl}#page=${focusedPage}`}
+                style={{ width: '100%', flex: 1, border: 'none', display: 'block' }}
+                title={doc ?? 'Document'}
+              />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: 13 }}>
+                Loading…
               </div>
             )}
           </div>

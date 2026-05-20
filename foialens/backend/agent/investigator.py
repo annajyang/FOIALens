@@ -1,12 +1,13 @@
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 from db.client import pool
 from tools import TOOL_DEFINITIONS, dispatch_tool
-from tools.haiku_utils import DO_MODEL, _openai
+from tools.haiku_utils import DO_MODEL, call_with_backoff
 from .prompts import WorkspaceContext, build_system_prompt, build_user_turn
 
 SONNET = DO_MODEL
@@ -42,38 +43,60 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
     angle_count = 0
 
     try:
-        for _ in range(MAX_ITERATIONS):
-            response = await _openai().chat.completions.create(
+        for i in range(MAX_ITERATIONS):
+            is_final_turn = (i == MAX_ITERATIONS - 1)
+            call_kwargs: dict = dict(
                 model=SONNET,
                 max_tokens=8192,
                 messages=[
                     {"role": "system", "content": build_system_prompt(params.mode, params.prompt)},
                     *messages,
                 ],
-                tools=TOOL_DEFINITIONS,
             )
+            if not is_final_turn:
+                call_kwargs["tools"] = TOOL_DEFINITIONS
+            response = await call_with_backoff(**call_kwargs)
 
             msg = response.choices[0].message
             finish_reason = response.choices[0].finish_reason
 
+            print(f"\n[llm] iter={i} finish={finish_reason} tools={len(msg.tool_calls or [])}", flush=True)
+            if msg.content:
+                print(f"[llm] text: {msg.content[:400]}", flush=True)
+            for tc in (msg.tool_calls or []):
+                print(f"[llm] tool_call: {tc.function.name} args={tc.function.arguments[:200]}", flush=True)
+
+            # Collect tool calls: prefer API tool_calls; fall back to <tool_call> text blocks
+            # that some open-source models (e.g. Qwen) emit instead of the function-calling API.
+            api_calls = msg.tool_calls or []
+            text_calls = _parse_text_tool_calls(msg.content or "") if not api_calls else []
+            all_calls = api_calls or text_calls   # one source or the other, never both
+
+            # Build the assistant message for the conversation history
             assistant_msg: dict = {"role": "assistant", "content": msg.content}
-            if msg.tool_calls:
+            if api_calls:
                 assistant_msg["tool_calls"] = [
-                    {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                    for tc in msg.tool_calls
+                    {"id": tc.id, "type": "function",
+                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in api_calls
+                ]
+            elif text_calls:
+                print(f"[llm] found {len(text_calls)} text-format tool call(s), executing", flush=True)
+                assistant_msg["tool_calls"] = [
+                    {"id": tc["id"], "type": "function",
+                     "function": {"name": tc["name"], "arguments": json.dumps(tc["args"])}}
+                    for tc in text_calls
                 ]
             messages.append(assistant_msg)
 
-            if finish_reason in ("stop", "length"):
+            if not all_calls:
+                # No tool calls → final response
                 final_text = (msg.content or "").strip()
-
                 trace.append({"type": "final", "content": final_text, "timestamp": _now()})
-
                 new_entity_count, new_event_count = await _merge_into_workspace(
                     params.workspace_id, params.run_id, acc_entities, acc_events,
                     params.workspace_context,
                 )
-
                 await asyncio.gather(
                     pool().execute(
                         "UPDATE investigation_runs "
@@ -86,7 +109,6 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                         params.workspace_id,
                     ),
                 )
-
                 yield {
                     "type": "done",
                     "runId": params.run_id,
@@ -97,46 +119,64 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                 }
                 return
 
-            if finish_reason == "tool_calls" and msg.tool_calls:
-                for tc in msg.tool_calls:
-                    name = tc.function.name
-                    input_data = json.loads(tc.function.arguments)
+            # Execute tool calls (from API or from parsed text)
+            for tc in all_calls:
+                tc_id   = tc.id if api_calls else tc["id"]
+                tc_name = (tc.function.name if api_calls else tc["name"]) or ""
+                tc_args = tc.function.arguments if api_calls else json.dumps(tc["args"])
 
-                    yield {"type": "status", "message": f"Calling {name}…"}
+                # Strip special tokens some models leak into tool names
+                m = re.match(r'^[a-zA-Z0-9_]+', tc_name)
+                name = m.group() if m else tc_name
+                if name != tc_name:
+                    print(f"[tool] sanitized name {tc_name!r} → {name!r}", flush=True)
 
-                    result = await dispatch_tool(
-                        name, input_data,
-                        params.workspace_id, params.run_id, known_entity_names,
-                    )
+                input_data = json.loads(tc_args)
+                yield {"type": "status", "message": f"Calling {name}…"}
 
-                    if name == "extract_entities":
-                        extracted = result.get("entities", [])
-                        for e in extracted:
-                            known_entity_names.add(e["name"].lower())
-                        acc_entities = _merge_entities(acc_entities, extracted)
+                result = await dispatch_tool(name, input_data,
+                                             params.workspace_id, params.run_id, known_entity_names)
 
-                    if name == "build_timeline":
-                        acc_events = _merge_events(acc_events, result.get("events", []))
+                if name == "extract_entities":
+                    extracted = result.get("entities", [])
+                    for e in extracted:
+                        known_entity_names.add(e["name"].lower())
+                    acc_entities = _merge_entities(acc_entities, extracted)
 
-                    if name == "propose_angle":
-                        angle = await _fetch_angle(result["angleId"])
-                        if angle:
-                            yield {"type": "angle_proposed", "angle": angle}
-                            angle_count += 1
+                if name == "build_timeline":
+                    acc_events = _merge_events(acc_events, result.get("events", []))
 
-                    timestamp = _now()
-                    result_summary = _summarize(name, result)
+                if name == "propose_angle":
+                    angle = await _fetch_angle(result["angleId"])
+                    if angle:
+                        yield {"type": "angle_proposed", "angle": angle}
+                        angle_count += 1
 
-                    yield {"type": "trace", "tool": name, "input": input_data, "resultSummary": result_summary, "timestamp": timestamp}
-                    trace.append({"type": "tool_call", "tool": name, "input": input_data, "resultSummary": result_summary, "timestamp": timestamp})
+                timestamp = _now()
+                result_summary = _summarize(name, result)
+                yield {"type": "trace", "tool": name, "input": input_data,
+                       "resultSummary": result_summary, "timestamp": timestamp}
+                trace.append({"type": "tool_call", "tool": name, "input": input_data,
+                               "resultSummary": result_summary, "timestamp": timestamp})
+                messages.append({"role": "tool", "tool_call_id": tc_id, "content": json.dumps(result)})
 
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": json.dumps(result),
-                    })
-
-        raise RuntimeError("Investigation exceeded the maximum iteration limit.")
+        # Should be unreachable: final turn has no tools so always produces end_turn.
+        # Guard against unexpected model behavior by flushing whatever we have.
+        new_entity_count, new_event_count = await _merge_into_workspace(
+            params.workspace_id, params.run_id, acc_entities, acc_events, params.workspace_context,
+        )
+        await asyncio.gather(
+            pool().execute(
+                "UPDATE investigation_runs SET status = 'done', trace = $1::jsonb, completed_at = NOW() WHERE id = $2",
+                trace, params.run_id,
+            ),
+            pool().execute(
+                "UPDATE workspaces SET status = 'active', updated_at = NOW() WHERE id = $1",
+                params.workspace_id,
+            ),
+        )
+        yield {"type": "done", "runId": params.run_id, "summary": "", "angleCount": angle_count,
+               "newEntityCount": new_entity_count, "newTimelineEventCount": new_event_count}
 
     except Exception as exc:
         message = str(exc)
@@ -242,6 +282,30 @@ def _merge_events(existing: list[dict], incoming: list[dict]) -> list[dict]:
 
 def _event_key(e: dict) -> str:
     return f"{e['date']}|{e['description'][:80]}"
+
+
+def _parse_text_tool_calls(content: str) -> list[dict]:
+    """Parse <tool_call>...</tool_call> blocks emitted by models like Qwen.
+    Returns a list of {"id": str, "name": str, "args": dict}.
+    Qwen format: {"name": "tool_name", "arguments": {...}}
+    """
+    results = []
+    for idx, block in enumerate(re.findall(r'<tool_call>(.*?)</tool_call>', content, re.DOTALL)):
+        try:
+            parsed = json.loads(block.strip())
+        except json.JSONDecodeError:
+            continue
+        name = parsed.get("name")
+        args = parsed.get("arguments") or parsed.get("args") or {}
+        if not name:
+            continue
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                continue
+        results.append({"id": f"text_{idx}", "name": name, "args": args})
+    return results
 
 
 def _summarize(tool_name: str, result: dict) -> str:
