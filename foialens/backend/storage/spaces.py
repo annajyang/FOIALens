@@ -29,3 +29,18 @@ def presigned_url(key: str, expires: int = 3600) -> str:
         Params={'Bucket': os.environ['DO_SPACES_BUCKET'], 'Key': key},
         ExpiresIn=expires,
     )
+
+
+async def delete_folder(prefix: str) -> None:
+    """Delete all objects under a prefix (e.g. 'documents/{workspace_id}/')."""
+    bucket = os.environ['DO_SPACES_BUCKET']
+    loop = asyncio.get_event_loop()
+
+    def _delete_all():
+        paginator = _s3().get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            objects = [{'Key': o['Key']} for o in page.get('Contents', [])]
+            if objects:
+                _s3().delete_objects(Bucket=bucket, Delete={'Objects': objects})
+
+    await loop.run_in_executor(None, _delete_all)

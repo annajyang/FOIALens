@@ -1,12 +1,13 @@
 import asyncio
+from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
 from db.client import pool
 from ingestion.upload import create_workspace_and_ingest, ingest_files
-from storage.spaces import presigned_url
+from storage.spaces import presigned_url, delete_folder
 
 router = APIRouter()
 
@@ -18,11 +19,23 @@ class RenameRequest(BaseModel):
     name: str
 
 
+class ClaimRequest(BaseModel):
+    email: str
+
+
+def _session(guest_token: Optional[str], owner_email: Optional[str]) -> tuple[str | None, str | None]:
+    return guest_token or None, (owner_email or "").strip().lower() or None
+
+
 @router.get("/workspaces")
-async def list_workspaces():
+async def list_workspaces(
+    x_guest_token: Optional[str] = Header(None),
+    x_owner_email: Optional[str] = Header(None),
+):
+    token, email = _session(x_guest_token, x_owner_email)
     rows = await pool().fetch("""
         SELECT
-            w.id, w.name, w.status, w.created_at,
+            w.id, w.name, w.status, w.created_at, w.owner_email, w.expires_at,
             COUNT(DISTINCT d.id)::int  AS document_count,
             COUNT(DISTINCT a.id)::int  AS angle_count,
             COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'pinned')::int AS pinned_count,
@@ -31,9 +44,14 @@ async def list_workspaces():
         LEFT JOIN documents d ON d.workspace_id = w.id
         LEFT JOIN angles a ON a.workspace_id = w.id
         LEFT JOIN investigation_runs r ON r.workspace_id = w.id AND r.status = 'done'
+        WHERE (expires_at IS NULL OR expires_at > NOW())
+          AND (
+            ($1::uuid IS NOT NULL AND w.guest_token = $1::uuid)
+            OR ($2::text IS NOT NULL AND w.owner_email = $2)
+          )
         GROUP BY w.id
         ORDER BY w.created_at DESC
-    """)
+    """, token, email)
     return {
         "workspaces": [
             {
@@ -45,6 +63,7 @@ async def list_workspaces():
                 "pinnedCount": r["pinned_count"],
                 "lastRunAt": r["last_run_at"].isoformat() if r["last_run_at"] else None,
                 "createdAt": r["created_at"].isoformat(),
+                "saved": r["owner_email"] is not None,
             }
             for r in rows
         ]
@@ -52,13 +71,20 @@ async def list_workspaces():
 
 
 @router.get("/workspaces/{workspace_id}")
-async def get_workspace(workspace_id: str):
+async def get_workspace(
+    workspace_id: str,
+    x_guest_token: Optional[str] = Header(None),
+    x_owner_email: Optional[str] = Header(None),
+):
+    token, email = _session(x_guest_token, x_owner_email)
     try:
         ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
     except asyncpg.DataError:
         raise HTTPException(status_code=404, detail="Workspace not found.")
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")
+
+    _check_access(ws, token, email)
 
     docs, chunk_count, angles, runs = await asyncio.gather(
         pool().fetch(
@@ -80,6 +106,9 @@ async def get_workspace(workspace_id: str):
             "id": str(ws["id"]),
             "name": ws["name"],
             "status": ws["status"],
+            "saved": ws["owner_email"] is not None,
+            "ownerEmail": ws["owner_email"],
+            "expiresAt": ws["expires_at"].isoformat() if ws["expires_at"] else None,
             "documents": [
                 {
                     "id": str(d["id"]),
@@ -112,32 +141,96 @@ async def get_workspace(workspace_id: str):
 
 
 @router.patch("/workspaces/{workspace_id}")
-async def rename_workspace(workspace_id: str, body: RenameRequest):
+async def rename_workspace(
+    workspace_id: str,
+    body: RenameRequest,
+    x_guest_token: Optional[str] = Header(None),
+    x_owner_email: Optional[str] = Header(None),
+):
+    token, email = _session(x_guest_token, x_owner_email)
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name cannot be empty.")
     try:
-        row = await pool().fetchrow(
-            "UPDATE workspaces SET name = $1 WHERE id = $2 RETURNING id, name",
-            name, workspace_id,
-        )
+        ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
     except asyncpg.DataError:
         raise HTTPException(status_code=404, detail="Workspace not found.")
-    if not row:
+    if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")
+    _check_access(ws, token, email)
+    row = await pool().fetchrow(
+        "UPDATE workspaces SET name = $1 WHERE id = $2 RETURNING id, name",
+        name, workspace_id,
+    )
     return {"id": str(row["id"]), "name": row["name"]}
+
+
+@router.delete("/workspaces/{workspace_id}", status_code=204)
+async def delete_workspace(
+    workspace_id: str,
+    x_guest_token: Optional[str] = Header(None),
+    x_owner_email: Optional[str] = Header(None),
+):
+    token, email = _session(x_guest_token, x_owner_email)
+    try:
+        ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
+    except asyncpg.DataError:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    _check_access(ws, token, email)
+
+    # Delete files from Spaces before removing DB rows (CASCADE handles the rest)
+    import os
+    if all(os.environ.get(k) for k in ('DO_SPACES_ENDPOINT', 'DO_SPACES_KEY', 'DO_SPACES_SECRET', 'DO_SPACES_BUCKET')):
+        try:
+            await delete_folder(f"documents/{workspace_id}/")
+        except Exception:
+            pass  # Don't block deletion if Spaces cleanup fails
+
+    await pool().execute("DELETE FROM workspaces WHERE id = $1", workspace_id)
+
+
+@router.post("/workspaces/{workspace_id}/claim")
+async def claim_workspace(
+    workspace_id: str,
+    body: ClaimRequest,
+    x_guest_token: Optional[str] = Header(None),
+    x_owner_email: Optional[str] = Header(None),
+):
+    token, email = _session(x_guest_token, x_owner_email)
+    claim_email = body.email.strip().lower()
+    if not claim_email or "@" not in claim_email:
+        raise HTTPException(status_code=400, detail="A valid email is required.")
+    try:
+        ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
+    except asyncpg.DataError:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    _check_access(ws, token, email)
+    await pool().execute(
+        "UPDATE workspaces SET owner_email = $1, expires_at = NULL WHERE id = $2",
+        claim_email, workspace_id,
+    )
+    return {"saved": True, "ownerEmail": claim_email}
 
 
 @router.post("/workspaces", status_code=201)
 async def create_workspace(
     name: str = Form(...),
     files: list[UploadFile] = File(...),
+    x_guest_token: Optional[str] = Header(None),
 ):
     _validate_files(files)
     try:
-        result = await create_workspace_and_ingest(name, files)
-        return {"workspaceId": result["workspaceId"], "status": "ready",
-                "documentCount": result["documentCount"], "chunkCount": result["chunkCount"]}
+        result = await create_workspace_and_ingest(name, files, guest_token=x_guest_token or None)
+        return {
+            "workspaceId": result["workspaceId"],
+            "status": "ready",
+            "documentCount": result["documentCount"],
+            "chunkCount": result["chunkCount"],
+        }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -148,20 +241,22 @@ async def create_workspace(
 async def upload_to_workspace(
     workspace_id: str,
     files: list[UploadFile] = File(...),
+    x_guest_token: Optional[str] = Header(None),
+    x_owner_email: Optional[str] = Header(None),
 ):
+    token, email = _session(x_guest_token, x_owner_email)
     try:
-        ws = await pool().fetchrow("SELECT status FROM workspaces WHERE id = $1", workspace_id)
+        ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
     except asyncpg.DataError:
         raise HTTPException(status_code=404, detail="Workspace not found.")
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")
+    _check_access(ws, token, email)
     if ws["status"] == "investigating":
         raise HTTPException(status_code=409, detail="Cannot add documents while an investigation is running.")
 
     _validate_files(files)
-
     before = await pool().fetchval("SELECT count(*)::int FROM chunks WHERE workspace_id = $1", workspace_id)
-
     try:
         result = await ingest_files(files, workspace_id)
         return {
@@ -187,6 +282,21 @@ async def get_document_url(doc_id: str):
         return {"url": presigned_url(row["file_key"])}
     except KeyError as e:
         raise HTTPException(status_code=503, detail=f"File storage not configured: missing env var {e}")
+
+
+def _check_access(ws, token: str | None, email: str | None):
+    if ws["owner_email"] and email and ws["owner_email"] == email:
+        return
+    if ws["guest_token"] and token:
+        try:
+            import uuid
+            if ws["guest_token"] == uuid.UUID(token):
+                return
+        except (ValueError, AttributeError):
+            pass
+    if not ws["guest_token"] and not ws["owner_email"]:
+        return  # legacy workspace (no token set), allow access
+    raise HTTPException(status_code=403, detail="Access denied.")
 
 
 def _validate_files(files: list[UploadFile]) -> None:

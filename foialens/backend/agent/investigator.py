@@ -91,6 +91,14 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
 
             if not all_calls:
                 # No tool calls → final response
+                # If nothing was proposed yet, force one more tool-enabled pass.
+                if angle_count == 0 and not is_final_turn:
+                    messages.append({"role": "user", "content":
+                        "You have not proposed any story angles yet. "
+                        "Review your search results above and call propose_angle at least once "
+                        "with the most newsworthy finding, even if confidence is low."})
+                    continue
+
                 final_text = (msg.content or "").strip()
                 trace.append({"type": "final", "content": final_text, "timestamp": _now()})
                 new_entity_count, new_event_count = await _merge_into_workspace(

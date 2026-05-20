@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 1024,
       messages: [{ role: 'system', content: system }, ...messages],
     });
-    const text = response.choices[0]?.message.content ?? '';
+    const text = (response.choices[0]?.message.content ?? '').trim();
     return NextResponse.json({ content: text });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error';

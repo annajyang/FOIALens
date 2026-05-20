@@ -8,14 +8,20 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- workspaces
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS workspaces (
-  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name       TEXT NOT NULL,
-  status     TEXT NOT NULL DEFAULT 'ingesting',
-  entities   JSONB NOT NULL DEFAULT '[]',
-  timeline   JSONB NOT NULL DEFAULT '[]',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'ingesting',
+  entities    JSONB NOT NULL DEFAULT '[]',
+  timeline    JSONB NOT NULL DEFAULT '[]',
+  guest_token UUID,
+  owner_email TEXT,
+  expires_at  TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days'),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_workspaces_guest_token ON workspaces(guest_token);
+CREATE INDEX IF NOT EXISTS idx_workspaces_owner_email ON workspaces(owner_email);
 
 -- ─────────────────────────────────────────
 -- documents

@@ -37,14 +37,18 @@ async def investigate(body: InvestigateRequest):
     if ws["status"] == "investigating":
         raise HTTPException(status_code=409, detail="Another investigation is already running.")
 
-    docs, chunk_row, prior_row, pinned_rows = await _fetch_context(body.workspaceId)
+    docs, chunk_row, prior_row, pinned_rows, prior_angle_rows = await _fetch_context(body.workspaceId)
+
+    pinned_titles = [r["title"] for r in pinned_rows]
+    prior_titles  = [r["title"] for r in prior_angle_rows if r["title"] not in pinned_titles]
 
     workspace_context = WorkspaceContext(
         name=ws["name"],
         documents=[{"filename": r["filename"], "pageCount": r["page_count"]} for r in docs],
         chunk_count=chunk_row,
         prior_runs=prior_row,
-        pinned_angle_titles=[r["title"] for r in pinned_rows],
+        pinned_angle_titles=pinned_titles,
+        prior_angle_titles=prior_titles,
         existing_entities=ws["entities"] or [],
         existing_timeline=ws["timeline"] or [],
     )
@@ -91,7 +95,7 @@ async def investigate(body: InvestigateRequest):
 
 
 async def _fetch_context(workspace_id: str):
-    docs, chunk_count, prior_runs, pinned = await asyncio.gather(
+    docs, chunk_count, prior_runs, pinned, prior_angles = await asyncio.gather(
         pool().fetch(
             "SELECT filename, page_count FROM documents WHERE workspace_id = $1 ORDER BY created_at",
             workspace_id,
@@ -102,5 +106,6 @@ async def _fetch_context(workspace_id: str):
             workspace_id,
         ),
         pool().fetch("SELECT title FROM angles WHERE workspace_id = $1 AND status = 'pinned'", workspace_id),
+        pool().fetch("SELECT title FROM angles WHERE workspace_id = $1 AND status != 'pinned'", workspace_id),
     )
-    return docs, chunk_count, prior_runs, pinned
+    return docs, chunk_count, prior_runs, pinned, prior_angles

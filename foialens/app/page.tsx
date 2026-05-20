@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '../lib/api';
+import { getOwnerEmail, setOwnerEmail } from '../lib/session';
 import type { WorkspaceListItem } from '../lib/types';
 import UploadZone from '../components/UploadZone';
 
@@ -16,13 +17,39 @@ export default function Home() {
   const [files, setFiles]           = useState<File[]>([]);
   const [creating, setCreating]     = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [signedInAs, setSignedInAs] = useState('');
 
   useEffect(() => {
+    setSignedInAs(getOwnerEmail());
     api.listWorkspaces()
       .then(setWorkspaces)
       .catch(e => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  function handleSignIn() {
+    const e = emailDraft.trim().toLowerCase();
+    if (!e || !e.includes('@')) return;
+    setOwnerEmail(e);
+    setSignedInAs(e);
+    setEmailDraft('');
+    setLoading(true);
+    api.listWorkspaces()
+      .then(setWorkspaces)
+      .catch(e => setLoadError(e.message))
+      .finally(() => setLoading(false));
+  }
+
+  function handleSignOut() {
+    setOwnerEmail('');
+    setSignedInAs('');
+    setLoading(true);
+    api.listWorkspaces()
+      .then(setWorkspaces)
+      .catch(e => setLoadError(e.message))
+      .finally(() => setLoading(false));
+  }
 
   function closeModal() {
     setShowModal(false); setWsName(''); setFiles([]); setCreateError(null);
@@ -52,9 +79,26 @@ export default function Home() {
           <span className="brand-name">FOIALENS</span>
         </div>
         <div className="topbar-spacer" />
-        <div className="topbar-meta">
-          <span><span className="dot" />READY</span>
-        </div>
+        {signedInAs ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--green)', letterSpacing: '0.06em' }}>
+              ✓ {signedInAs}
+            </span>
+            <button className="btn btn-sm" onClick={handleSignOut}>Sign out</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="email"
+              placeholder="Recover workspaces by email…"
+              value={emailDraft}
+              onChange={e => setEmailDraft(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSignIn()}
+              style={{ padding: '4px 8px', background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--mono)', fontSize: 11, outline: 'none', width: 220 }}
+            />
+            <button className="btn btn-sm" onClick={handleSignIn} disabled={!emailDraft.trim()}>Sign in</button>
+          </div>
+        )}
         <button className="btn btn-amber" onClick={() => setShowModal(true)}>＋ New workspace</button>
       </header>
 
@@ -172,9 +216,16 @@ function WorkspaceCard({ ws, onClick }: { ws: WorkspaceListItem; onClick: () => 
         <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.005em', flex: 1 }}>
           {ws.name}
         </span>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: statusColors[ws.status] ?? 'var(--fg-mute)', flexShrink: 0 }}>
-          ● {ws.status}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: statusColors[ws.status] ?? 'var(--fg-mute)' }}>
+            ● {ws.status}
+          </span>
+          {!ws.saved && (
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.06em', color: 'var(--amber)' }}>
+              expires 7d
+            </span>
+          )}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 14, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-mute)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
         <span>{ws.documentCount} doc{ws.documentCount !== 1 ? 's' : ''}</span>

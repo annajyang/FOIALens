@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '../../../lib/api';
+import { setOwnerEmail } from '../../../lib/session';
 import type { WorkspaceDetail, Angle, AngleStatus, SSEEvent, TraceEntry, Document } from '../../../lib/types';
 import UploadZone from '../../../components/UploadZone';
 
@@ -104,11 +105,17 @@ export default function WorkspacePage() {
   const [tool,        setTool]        = useState<Tool>('angles');
   const [mode,        setMode]        = useState<'exploratory' | 'directed'>('exploratory');
   const [prompt,      setPrompt]      = useState('');
+  const [suggestion,  setSuggestion]  = useState('');
+  const [suggesting,  setSuggesting]  = useState(false);
   const [addDocsOpen, setAddDocsOpen] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploading,   setUploading]   = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [saveOpen,    setSaveOpen]    = useState(false);
+  const [saveEmail,   setSaveEmail]   = useState('');
+  const [saving,      setSaving]      = useState(false);
+  const [saveError,   setSaveError]   = useState<string | null>(null);
 
   // Doc viewer
   const [viewer, setViewer] = useState<{ open: boolean; doc: string | null; pages: number[]; focus: number }>({ open: false, doc: null, pages: [], focus: 1 });
@@ -124,15 +131,21 @@ export default function WorkspacePage() {
   const [chatMinimized, setChatMinimized] = useState(false);
   const [chatDraft,    setChatDraft]    = useState('');
 
+  const chatStorageKey = `foialens-chats-${workspaceId}-v1`;
+
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('foialens-chats-v1') || '{}');
-      setChatThreads(saved);
+      const saved = JSON.parse(localStorage.getItem(chatStorageKey) || '{}');
+      if (Object.keys(saved).length > 0) {
+        setChatThreads(saved);
+        setOpenChatIds(Object.keys(saved));
+        setActiveChatId(Object.keys(saved)[0]);
+      }
     } catch {}
   }, []);
 
   useEffect(() => {
-    try { localStorage.setItem('foialens-chats-v1', JSON.stringify(chatThreads)); } catch {}
+    try { localStorage.setItem(chatStorageKey, JSON.stringify(chatThreads)); } catch {}
   }, [chatThreads]);
 
   const openChat = useCallback((angleId: string, draft?: string) => {
@@ -163,6 +176,7 @@ export default function WorkspacePage() {
         setAngles(ws.angles);
         const lastTrace = ws.runs?.[0]?.trace;
         if (lastTrace?.length) setTrace(lastTrace);
+        generateSuggestion(ws, ws.angles);
       })
       .catch(e => setLoadError(e.message));
   }, [workspaceId]);
@@ -238,6 +252,43 @@ export default function WorkspacePage() {
     if (status === 'dismissed' && selectedId === angleId) setSelectedId(null);
   }
 
+  async function doSave() {
+    if (!saveEmail.trim() || saving) return;
+    setSaving(true); setSaveError(null);
+    try {
+      await api.claimWorkspace(workspaceId, saveEmail.trim());
+      setOwnerEmail(saveEmail.trim());
+      setWorkspace(w => w ? { ...w, saved: true, ownerEmail: saveEmail.trim() } : w);
+      setSaveOpen(false);
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function generateSuggestion(ws: WorkspaceDetail, currentAngles: Angle[]) {
+    setSuggesting(true);
+    setSuggestion('');
+    try {
+      const docs = ws.documents.map(d => d.filename).join(', ');
+      const entities = ws.entities.slice(0, 8).map(e => `${e.name} (${e.type})`).join(', ');
+      const found = currentAngles.filter(a => a.status !== 'dismissed').slice(0, 4).map(a => a.title).join('; ');
+      const system = `You are a research assistant for an investigative journalist analyzing FOIA documents.
+Documents in corpus: ${docs || 'unknown'}${entities ? `\nKey entities identified: ${entities}` : ''}${found ? `\nAngles already found: ${found}` : ''}
+Generate ONE specific, focused investigation question a journalist should pursue. Return only the question itself — no preamble, no explanation.`;
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system, messages: [{ role: 'user', content: 'Suggest an investigation question.' }] }),
+      });
+      const { content } = await res.json() as { content: string };
+      setSuggestion(content.trim().replace(/^["']|["']$/g, ''));
+    } catch {}
+    setSuggesting(false);
+  }
+
+
   async function handleUpload() {
     if (uploadFiles.length === 0 || uploading) return;
     setUploading(true); setUploadError(null);
@@ -301,6 +352,10 @@ export default function WorkspacePage() {
             : <span><span className="dot" />READY · {workspace.chunkCount} chunks</span>
           }
         </div>
+        {workspace.saved
+          ? <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--green)', letterSpacing: '0.06em' }}>✓ SAVED</span>
+          : <button className="btn btn-amber" onClick={() => setSaveOpen(true)}>Save workspace</button>
+        }
         <button className="btn btn-amber" onClick={() => setAddDocsOpen(true)} disabled={running}>＋ Add docs</button>
         <button className="btn">Export</button>
       </header>
@@ -330,10 +385,25 @@ export default function WorkspacePage() {
 
             {mode === 'directed' && (
               <div className="prompt-box">
+                {suggestion && !prompt && (
+                  <div
+                    className="suggestion-chip"
+                    onClick={() => setPrompt(suggestion)}
+                    title="Click to use this suggestion"
+                  >
+                    <span className="suggestion-label">suggestion ↗</span>
+                    <span className="suggestion-text">{suggestion}</span>
+                  </div>
+                )}
+                {suggesting && !suggestion && (
+                  <div className="suggestion-chip generating">
+                    <span className="suggestion-label">generating…</span>
+                  </div>
+                )}
                 <textarea
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
-                  placeholder="e.g. Did Acme Corp receive preferential treatment in 2019–2021?"
+                  placeholder="Describe what you want to investigate…"
                 />
                 <div className="prompt-foot">
                   <span className="hint">⌘ + ↵ to run</span>
@@ -434,7 +504,7 @@ export default function WorkspacePage() {
                   <span className="sep">·</span>
                   <span>mode: <code>{mode}</code></span>
                   <span className="sep">·</span>
-                  <span>model: <code>claude-sonnet-4-6</code></span>
+                  <span>model: <code>{process.env.NEXT_PUBLIC_DO_MODEL ?? 'unknown'}</code></span>
                 </>
               )}
             </div>
@@ -489,9 +559,42 @@ export default function WorkspacePage() {
             : <span style={{ color: 'var(--green)' }}>● READY</span>}
         </span>
         <span className="sb-spacer" />
-        <span className="sb-item">claude-sonnet-4-6</span>
+        <span className="sb-item">{process.env.NEXT_PUBLIC_DO_MODEL ?? 'unknown'}</span>
         <span className="sb-item">v0.1.0</span>
       </footer>
+
+      {/* Save workspace modal */}
+      {saveOpen && (
+        <div className="modal-back" onClick={() => { setSaveOpen(false); setSaveError(null); }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Save workspace</h3>
+              <button className="btn btn-sm" onClick={() => { setSaveOpen(false); setSaveError(null); }}>Close</button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
+                Enter your email to save this workspace permanently. You can recover it on any device by signing in with the same email.
+              </p>
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={saveEmail}
+                onChange={e => setSaveEmail(e.target.value)}
+                onKeyDown={async e => { if (e.key === 'Enter') await doSave(); }}
+                autoFocus
+                style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--sans)', fontSize: 13, outline: 'none' }}
+              />
+              {saveError && <p style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--red)' }}>{saveError}</p>}
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => { setSaveOpen(false); setSaveError(null); }}>Cancel</button>
+              <button className="btn btn-amber" onClick={doSave} disabled={!saveEmail.trim() || saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add docs modal */}
       {addDocsOpen && (
@@ -914,7 +1017,7 @@ function TracePane({ trace, running }: { trace: TraceEntry[]; running: boolean }
   return (
     <div className="trace-pane">
       <div style={{ color: 'var(--fg-mute)', letterSpacing: '0.1em', textTransform: 'uppercase', fontSize: 10, marginBottom: 14 }}>
-        /// run_trace · model claude-sonnet-4-6
+        /// run_trace · model {process.env.NEXT_PUBLIC_DO_MODEL ?? 'unknown'}
       </div>
       <pre>{lines || (running ? '[ streaming… ]' : '// No trace yet. Run an investigation.')}</pre>
     </div>

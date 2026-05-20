@@ -154,16 +154,17 @@ export interface WorkspaceListItem {
   pinnedCount: number;
   lastRunAt: string | null;
   createdAt: string;
+  saved: boolean;
 }
 
 export interface WorkspaceDetail extends Workspace {
   documents: Document[];
   chunkCount: number;
   angles: Angle[];
+  saved: boolean;
+  ownerEmail: string | null;
+  expiresAt: string | null;
   runs: Array<
-    Pick<
-      InvestigationRun,
-      'id' | 'mode' | 'prompt' | 'status' | 'startedAt' | 'completedAt'
-    >
+    Pick<InvestigationRun, 'id' | 'mode' | 'prompt' | 'status' | 'startedAt' | 'completedAt'> & { trace: TraceEntry[] }
   >;
 }

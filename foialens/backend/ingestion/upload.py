@@ -14,10 +14,18 @@ _SPACES_CONFIGURED = all(
 )
 
 
-async def create_workspace_and_ingest(name: str, files: list[UploadFile]) -> dict:
+async def create_workspace_and_ingest(name: str, files: list[UploadFile], guest_token: str | None = None) -> dict:
+    import uuid as _uuid
+    token_val = None
+    if guest_token:
+        try:
+            token_val = str(_uuid.UUID(guest_token))
+        except ValueError:
+            pass
     row = await pool().fetchrow(
-        "INSERT INTO workspaces (name, status) VALUES ($1, 'ingesting') RETURNING id",
-        name.strip(),
+        "INSERT INTO workspaces (name, status, guest_token, expires_at) "
+        "VALUES ($1, 'ingesting', $2::uuid, NOW() + INTERVAL '7 days') RETURNING id",
+        name.strip(), token_val,
     )
     workspace_id = str(row["id"])
     result = await ingest_files(files, workspace_id)
