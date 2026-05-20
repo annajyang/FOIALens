@@ -73,6 +73,18 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  deleteWorkspace: (workspaceId: string) =>
+    fetch(`${BACKEND}/api/workspaces/${workspaceId}`, {
+      method: 'DELETE',
+      headers: sessionHeaders(),
+    }).then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); }),
+
+  deleteDocument: (docId: string) =>
+    fetch(`${BACKEND}/api/documents/${docId}`, {
+      method: 'DELETE',
+      headers: sessionHeaders(),
+    }).then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); }),
+
   getDocumentUrl: (docId: string) =>
     apiFetch<{ url: string }>(`/documents/${docId}/url`),
 };

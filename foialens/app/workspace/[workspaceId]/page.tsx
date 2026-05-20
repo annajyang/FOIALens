@@ -111,7 +111,9 @@ export default function WorkspacePage() {
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploading,   setUploading]   = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmOpen,  setConfirmOpen]  = useState(false);
+  const [deleteOpen,   setDeleteOpen]   = useState(false);
+  const [deleting,     setDeleting]     = useState(false);
   const [saveOpen,    setSaveOpen]    = useState(false);
   const [saveEmail,   setSaveEmail]   = useState('');
   const [saving,      setSaving]      = useState(false);
@@ -289,6 +291,18 @@ Generate ONE specific, focused investigation question a journalist should pursue
   }
 
 
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await api.deleteWorkspace(workspaceId);
+      router.push('/');
+    } catch (e: unknown) {
+      setDeleting(false);
+      setDeleteOpen(false);
+      setRunError(e instanceof Error ? e.message : 'Delete failed');
+    }
+  }
+
   async function handleUpload() {
     if (uploadFiles.length === 0 || uploading) return;
     setUploading(true); setUploadError(null);
@@ -358,6 +372,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
         }
         <button className="btn btn-amber" onClick={() => setAddDocsOpen(true)} disabled={running}>＋ Add docs</button>
         <button className="btn">Export</button>
+        <button className="btn btn-danger" onClick={() => setDeleteOpen(true)} disabled={running}>Delete</button>
       </header>
 
       {/* ── Main 3-col ── */}
@@ -432,15 +447,30 @@ Generate ONE specific, focused investigation question a journalist should pursue
             <h2 className="side-h">Corpus <span className="count">{workspace.documents.length} DOCS</span></h2>
             <div className="corpus-list">
               {workspace.documents.map(d => (
-                <div
-                  className="corpus-item doc-link"
-                  key={d.id}
-                  title={d.filename}
-                  onClick={() => openViewer(d.filename, [], 1)}
-                >
-                  <span className="status-dot" />
-                  <span className="corpus-name">{d.filename}</span>
-                  <span className="corpus-meta">{d.pageCount ? `${d.pageCount}p` : ''}</span>
+                <div className="corpus-item corpus-item-row" key={d.id} title={d.filename}>
+                  <div
+                    className="corpus-item-main doc-link"
+                    onClick={() => openViewer(d.filename, [], 1)}
+                  >
+                    <span className="status-dot" />
+                    <span className="corpus-name">{d.filename}</span>
+                    <span className="corpus-meta">{d.pageCount ? `${d.pageCount}p` : ''}</span>
+                  </div>
+                  <button
+                    className="corpus-delete"
+                    title="Delete document"
+                    disabled={running}
+                    onClick={async e => {
+                      e.stopPropagation();
+                      if (!confirm(`Delete "${d.filename}"?`)) return;
+                      try {
+                        await api.deleteDocument(d.id);
+                        setWorkspace(w => w ? { ...w, documents: w.documents.filter(x => x.id !== d.id) } : w);
+                      } catch (err: unknown) {
+                        setRunError(err instanceof Error ? err.message : 'Delete failed');
+                      }
+                    }}
+                  >×</button>
                 </div>
               ))}
               <button className="corpus-item" onClick={() => setAddDocsOpen(true)} style={{ color: 'var(--amber)' }}>
@@ -656,6 +686,29 @@ Generate ONE specific, focused investigation question a journalist should pursue
           </div>
         );
       })()}
+
+      {/* Delete workspace modal */}
+      {deleteOpen && (
+        <div className="modal-back" onClick={() => !deleting && setDeleteOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete workspace?</h3>
+              <button className="btn btn-sm" onClick={() => setDeleteOpen(false)} disabled={deleting}>Close</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
+                This will permanently delete <b>{workspace.name}</b> and all its documents, chunks, and angles. This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setDeleteOpen(false)} disabled={deleting}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Deleting…' : 'Delete workspace'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Doc viewer */}
       <DocViewer

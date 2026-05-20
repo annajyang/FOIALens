@@ -19,6 +19,8 @@ export default function Home() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [emailDraft, setEmailDraft] = useState('');
   const [signedInAs, setSignedInAs] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<WorkspaceListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setSignedInAs(getOwnerEmail());
@@ -177,11 +179,55 @@ export default function Home() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
             {workspaces.map(ws => (
-              <WorkspaceCard key={ws.id} ws={ws} onClick={() => router.push(`/workspace/${ws.id}`)} />
+              <WorkspaceCard
+                key={ws.id}
+                ws={ws}
+                onClick={() => router.push(`/workspace/${ws.id}`)}
+                onDelete={() => setDeleteTarget(ws)}
+              />
             ))}
           </div>
         )}
       </div>
+
+      {/* delete workspace modal */}
+      {deleteTarget && (
+        <div className="modal-back" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete workspace?</h3>
+              <button className="btn btn-sm" onClick={() => setDeleteTarget(null)} disabled={deleting}>Close</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
+                This will permanently delete <b>{deleteTarget.name}</b> and all its documents, chunks, and angles. This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</button>
+              <button
+                className="btn btn-danger"
+                disabled={deleting}
+                onClick={async () => {
+                  setDeleting(true);
+                  try {
+                    await api.deleteWorkspace(deleteTarget.id);
+                    setWorkspaces(prev => prev.filter(w => w.id !== deleteTarget.id));
+                    setDeleteTarget(null);
+                  } catch (e: unknown) {
+                    setLoadError(e instanceof Error ? e.message : 'Delete failed');
+                    setDeleteTarget(null);
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+              >
+                {deleting ? 'Deleting…' : 'Delete workspace'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* statusbar */}
       <footer className="statusbar" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 24 }}>
@@ -194,7 +240,7 @@ export default function Home() {
   );
 }
 
-function WorkspaceCard({ ws, onClick }: { ws: WorkspaceListItem; onClick: () => void }) {
+function WorkspaceCard({ ws, onClick, onDelete }: { ws: WorkspaceListItem; onClick: () => void; onDelete: () => void }) {
   const statusColors: Record<string, string> = {
     ingesting:    'var(--amber)',
     ready:        'var(--fg-mute)',
@@ -202,29 +248,30 @@ function WorkspaceCard({ ws, onClick }: { ws: WorkspaceListItem; onClick: () => 
     active:       'var(--green)',
   };
   return (
-    <button
+    <div
+      className="ws-card"
       onClick={onClick}
-      style={{
-        textAlign: 'left', background: 'var(--bg-1)', border: '1px solid var(--border)',
-        padding: '14px 16px', cursor: 'pointer', transition: 'border-color 120ms',
-        display: 'flex', flexDirection: 'column', gap: 10,
-      }}
-      onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--border-hot)')}
-      onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.005em', flex: 1 }}>
           {ws.name}
         </span>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: statusColors[ws.status] ?? 'var(--fg-mute)' }}>
-            ● {ws.status}
-          </span>
-          {!ws.saved && (
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.06em', color: 'var(--amber)' }}>
-              expires 7d
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: statusColors[ws.status] ?? 'var(--fg-mute)' }}>
+              ● {ws.status}
             </span>
-          )}
+            {!ws.saved && (
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.06em', color: 'var(--amber)' }}>
+                expires 7d
+              </span>
+            )}
+          </div>
+          <button
+            className="ws-card-delete"
+            title="Delete workspace"
+            onClick={e => { e.stopPropagation(); onDelete(); }}
+          >×</button>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 14, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-mute)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -237,6 +284,6 @@ function WorkspaceCard({ ws, onClick }: { ws: WorkspaceListItem; onClick: () => 
           Last run {new Date(ws.lastRunAt).toLocaleDateString()}
         </span>
       )}
-    </button>
+    </div>
   );
 }

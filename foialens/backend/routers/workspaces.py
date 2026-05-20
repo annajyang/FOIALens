@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from db.client import pool
 from ingestion.upload import create_workspace_and_ingest, ingest_files
-from storage.spaces import presigned_url, delete_folder
+from storage.spaces import presigned_url, delete_folder, delete_object
 
 router = APIRouter()
 
@@ -268,6 +268,35 @@ async def upload_to_workspace(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/documents/{doc_id}", status_code=204)
+async def delete_document(
+    doc_id: str,
+    x_guest_token: Optional[str] = Header(None),
+    x_owner_email: Optional[str] = Header(None),
+):
+    token, email = _session(x_guest_token, x_owner_email)
+    try:
+        row = await pool().fetchrow(
+            "SELECT d.id, d.file_key, d.workspace_id, w.guest_token, w.owner_email "
+            "FROM documents d JOIN workspaces w ON w.id = d.workspace_id WHERE d.id = $1",
+            doc_id,
+        )
+    except asyncpg.DataError:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    _check_access(row, token, email)
+
+    import os
+    if row["file_key"] and all(os.environ.get(k) for k in ('DO_SPACES_ENDPOINT', 'DO_SPACES_KEY', 'DO_SPACES_SECRET', 'DO_SPACES_BUCKET')):
+        try:
+            await delete_object(row["file_key"])
+        except Exception:
+            pass
+
+    await pool().execute("DELETE FROM documents WHERE id = $1", doc_id)
 
 
 @router.get("/documents/{doc_id}/url")

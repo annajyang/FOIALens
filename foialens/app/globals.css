@@ -150,6 +150,21 @@ input, textarea {
 .btn:hover { border-color: var(--border-hot); background: rgba(255,255,255,0.02); }
 .btn-amber { border-color: var(--amber); color: var(--amber); }
 .btn-amber:hover { background: var(--amber-dim); }
+.btn-danger { border-color: var(--red); color: var(--red); }
+.btn-danger:hover { background: rgba(255,80,80,0.08); }
+.ws-card {
+  text-align: left; background: var(--bg-1); border: 1px solid var(--border);
+  padding: 14px 16px; cursor: pointer; transition: border-color 120ms;
+  display: flex; flex-direction: column; gap: 10;
+}
+.ws-card:hover { border-color: var(--border-hot); }
+.ws-card:hover .ws-card-delete { opacity: 1; }
+.ws-card-delete {
+  opacity: 0; transition: opacity 120ms, color 120ms;
+  background: none; border: none; color: var(--fg-mute);
+  font-size: 15px; cursor: pointer; padding: 0 2px; line-height: 1; flex-shrink: 0;
+}
+.ws-card-delete:hover { color: var(--red); }
 .btn-sm { padding: 4px 8px; font-size: 10px; }
 
 /* ── Main split ────────────────────────────────────────────────────────── */
@@ -264,6 +279,16 @@ input, textarea {
   border: 1px solid transparent; cursor: pointer;
 }
 .corpus-item:hover { background: rgba(255,255,255,0.025); border-color: var(--border); }
+.corpus-item-row { cursor: default; }
+.corpus-item-row:hover .corpus-delete { opacity: 1; }
+.corpus-item-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer; }
+.corpus-delete {
+  flex-shrink: 0; opacity: 0; transition: opacity 120ms, color 120ms;
+  background: none; border: none; color: var(--fg-mute); font-size: 14px;
+  cursor: pointer; padding: 0 2px; line-height: 1;
+}
+.corpus-delete:hover { color: var(--red); }
+.corpus-delete:disabled { cursor: not-allowed; }
 .corpus-name {
   font-family: var(--mono); font-size: 11px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
