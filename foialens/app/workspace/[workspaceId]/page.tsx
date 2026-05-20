@@ -111,9 +111,11 @@ export default function WorkspacePage() {
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploading,   setUploading]   = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [confirmOpen,  setConfirmOpen]  = useState(false);
-  const [deleteOpen,   setDeleteOpen]   = useState(false);
-  const [deleting,     setDeleting]     = useState(false);
+  const [confirmOpen,    setConfirmOpen]    = useState(false);
+  const [deleteOpen,     setDeleteOpen]     = useState(false);
+  const [deleting,       setDeleting]       = useState(false);
+  const [deleteDocTarget, setDeleteDocTarget] = useState<{ id: string; filename: string } | null>(null);
+  const [deletingDoc,    setDeletingDoc]    = useState(false);
   const [saveOpen,    setSaveOpen]    = useState(false);
   const [saveEmail,   setSaveEmail]   = useState('');
   const [saving,      setSaving]      = useState(false);
@@ -460,16 +462,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
                     className="corpus-delete"
                     title="Delete document"
                     disabled={running}
-                    onClick={async e => {
-                      e.stopPropagation();
-                      if (!confirm(`Delete "${d.filename}"?`)) return;
-                      try {
-                        await api.deleteDocument(d.id);
-                        setWorkspace(w => w ? { ...w, documents: w.documents.filter(x => x.id !== d.id) } : w);
-                      } catch (err: unknown) {
-                        setRunError(err instanceof Error ? err.message : 'Delete failed');
-                      }
-                    }}
+                    onClick={e => { e.stopPropagation(); setDeleteDocTarget({ id: d.id, filename: d.filename }); }}
                   >×</button>
                 </div>
               ))}
@@ -686,6 +679,45 @@ Generate ONE specific, focused investigation question a journalist should pursue
           </div>
         );
       })()}
+
+      {/* Delete document modal */}
+      {deleteDocTarget && (
+        <div className="modal-back" onClick={() => !deletingDoc && setDeleteDocTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete document?</h3>
+              <button className="btn btn-sm" onClick={() => setDeleteDocTarget(null)} disabled={deletingDoc}>Close</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
+                This will permanently delete <b>{deleteDocTarget.filename}</b> and all its indexed chunks. This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setDeleteDocTarget(null)} disabled={deletingDoc}>Cancel</button>
+              <button
+                className="btn btn-danger"
+                disabled={deletingDoc}
+                onClick={async () => {
+                  setDeletingDoc(true);
+                  try {
+                    await api.deleteDocument(deleteDocTarget.id);
+                    setWorkspace(w => w ? { ...w, documents: w.documents.filter(x => x.id !== deleteDocTarget.id) } : w);
+                    setDeleteDocTarget(null);
+                  } catch (e: unknown) {
+                    setRunError(e instanceof Error ? e.message : 'Delete failed');
+                    setDeleteDocTarget(null);
+                  } finally {
+                    setDeletingDoc(false);
+                  }
+                }}
+              >
+                {deletingDoc ? 'Deleting…' : 'Delete document'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete workspace modal */}
       {deleteOpen && (
