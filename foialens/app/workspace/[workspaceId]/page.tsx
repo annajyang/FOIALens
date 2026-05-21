@@ -527,7 +527,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
                   <span className="sep">·</span>
                   <span>mode: <code>{mode}</code></span>
                   <span className="sep">·</span>
-                  <span>model: <code>{process.env.NEXT_PUBLIC_DO_MODEL ?? 'unknown'}</code></span>
+                  <span>model: <code>{process.env.NEXT_PUBLIC_OPENROUTER_MODEL ?? 'unknown'}</code></span>
                 </>
               )}
             </div>
@@ -582,7 +582,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
             : <span style={{ color: 'var(--green)' }}>● READY</span>}
         </span>
         <span className="sb-spacer" />
-        <span className="sb-item">{process.env.NEXT_PUBLIC_DO_MODEL ?? 'unknown'}</span>
+        <span className="sb-item">{process.env.NEXT_PUBLIC_OPENROUTER_MODEL ?? 'unknown'}</span>
         <span className="sb-item">v0.1.0</span>
       </footer>
 
@@ -1102,7 +1102,7 @@ function TracePane({ trace, running }: { trace: TraceEntry[]; running: boolean }
   return (
     <div className="trace-pane">
       <div style={{ color: 'var(--fg-mute)', letterSpacing: '0.1em', textTransform: 'uppercase', fontSize: 10, marginBottom: 14 }}>
-        /// run_trace · model {process.env.NEXT_PUBLIC_DO_MODEL ?? 'unknown'}
+        /// run_trace · model {process.env.NEXT_PUBLIC_OPENROUTER_MODEL ?? 'unknown'}
       </div>
       <pre>{lines || (running ? '[ streaming… ]' : '// No trace yet. Run an investigation.')}</pre>
     </div>

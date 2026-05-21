@@ -5,8 +5,8 @@ import re
 
 from openai import AsyncOpenAI
 
-DO_MODEL = os.getenv("DO_MODEL", "anthropic-claude-haiku-4.5")
-HAIKU = os.getenv("DO_EXTRACT_MODEL", DO_MODEL)
+MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-3.5-flash")
+HAIKU = os.getenv("OPENROUTER_EXTRACT_MODEL", MODEL)
 
 _client: AsyncOpenAI | None = None
 
@@ -15,8 +15,8 @@ def _openai() -> AsyncOpenAI:
     global _client
     if _client is None:
         _client = AsyncOpenAI(
-            base_url="https://inference.do-ai.run/v1",
-            api_key=os.environ.get("DO_MODEL_ACCESS_KEY"),
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.environ.get("OPENROUTER_API_KEY"),
         )
     return _client
 

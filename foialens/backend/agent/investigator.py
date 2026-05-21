@@ -7,10 +7,10 @@ from typing import AsyncGenerator
 
 from db.client import pool
 from tools import TOOL_DEFINITIONS, dispatch_tool
-from tools.haiku_utils import DO_MODEL, call_with_backoff
+from tools.haiku_utils import MODEL, call_with_backoff
 from .prompts import WorkspaceContext, build_system_prompt, build_user_turn
 
-SONNET = DO_MODEL
+SONNET = MODEL
 MAX_ITERATIONS = 10
 
 
