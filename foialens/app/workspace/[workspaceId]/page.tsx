@@ -6,6 +6,7 @@ import { api } from '../../../lib/api';
 import { setOwnerEmail } from '../../../lib/session';
 import type { WorkspaceDetail, Angle, AngleStatus, SSEEvent, TraceEntry, Document } from '../../../lib/types';
 import UploadZone from '../../../components/UploadZone';
+import ReactMarkdown from 'react-markdown';
 
 type Tool = 'angles' | 'entities' | 'timeline' | 'trace';
 type Tab  = 'pinned' | 'all' | 'new';
@@ -1619,8 +1620,9 @@ function ChatMessage({ msg, onQuickReply }: { msg: ChatMsg; onQuickReply: (q: st
     <div className="chat-row agent">
       <div className="chat-meta">▌ AGENT{msg.streaming ? ' · typing…' : ''}</div>
       <div className="chat-bubble agent">
-        {msg.content || <span className="chat-cursor">▍</span>}
-        {msg.streaming && msg.content && <span className="chat-cursor">▍</span>}
+        {msg.content
+          ? <><ReactMarkdown>{msg.content}</ReactMarkdown>{msg.streaming && <span className="chat-cursor">▍</span>}</>
+          : <span className="chat-cursor">▍</span>}
       </div>
       {msg.quickReplies && msg.quickReplies.length > 0 && (
         <div className="chat-quickreplies">
