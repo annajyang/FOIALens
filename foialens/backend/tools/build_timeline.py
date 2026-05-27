@@ -1,9 +1,10 @@
 import asyncio
 
+from db.client import pool
 from .haiku_utils import HAIKU, call_with_backoff, extract_text, parse_json
 from .search_documents import search_documents
 
-TIMELINE_QUERIES = [
+_BASE_QUERIES = [
     "signed dated effective agreement",
     "approved authorized ordered decision",
     "meeting minutes conference call scheduled",
@@ -12,8 +13,15 @@ TIMELINE_QUERIES = [
 ]
 
 
-async def build_timeline(workspace_id: str) -> dict:
-    chunks = await _gather_chunks(workspace_id)
+async def build_timeline(workspace_id: str, entity_names: list[str] | None = None) -> dict:
+    # entity_names comes from known_entity_names in the investigator loop —
+    # names extracted during the current run by extract_entities. Fall back to
+    # the workspace's accumulated entities from prior runs if nothing was passed.
+    if not entity_names:
+        ws_row = await pool().fetchrow("SELECT entities FROM workspaces WHERE id = $1", workspace_id)
+        entity_names = [e["name"] for e in (ws_row["entities"] or [])] if ws_row else []
+
+    chunks = await _gather_chunks(workspace_id, entity_names)
     if not chunks:
         return {"events": []}
 
@@ -21,7 +29,7 @@ async def build_timeline(workspace_id: str) -> dict:
 
     response = await call_with_backoff(
         model=HAIKU,
-        max_tokens=2048,
+        max_tokens=8192,
         messages=[
             {
                 "role": "system",
@@ -47,8 +55,10 @@ async def build_timeline(workspace_id: str) -> dict:
         ],
     )
 
-    parsed = parse_json(extract_text(response))
+    raw_text = extract_text(response)
+    parsed = parse_json(raw_text)
     if not isinstance(parsed, list):
+        print(f"[build_timeline] parse_json failed; raw={raw_text[:300]!r}", flush=True)
         return {"events": []}
 
     events = [e for e in parsed if _is_valid(e)]
@@ -56,10 +66,16 @@ async def build_timeline(workspace_id: str) -> dict:
     return {"events": events}
 
 
-async def _gather_chunks(workspace_id: str) -> list[dict]:
+async def _gather_chunks(workspace_id: str, entity_names: list[str]) -> list[dict]:
+    queries = list(_BASE_QUERIES)
+    # Add entity-specific date queries for the top entities already identified.
+    for name in entity_names[:5]:
+        queries.append(f"{name} date signed approved awarded")
+
     results = await asyncio.gather(
-        *[search_documents(query, workspace_id, limit=5) for query in TIMELINE_QUERIES]
+        *[search_documents(q, workspace_id, limit=5) for q in queries]
     )
+
     seen: set[str] = set()
     chunks: list[dict] = []
     for result in results:

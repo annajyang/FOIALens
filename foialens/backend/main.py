@@ -34,6 +34,25 @@ async def _migrate():
             ADD COLUMN IF NOT EXISTS file_key TEXT;
     """)
 
+    # GIN index for full-text keyword search (hybrid retrieval).
+    # Runs once; IF NOT EXISTS makes it a no-op on subsequent startups.
+    try:
+        await pool().execute("""
+            CREATE INDEX IF NOT EXISTS idx_chunks_content_fts
+                ON chunks USING gin(to_tsvector('english', content));
+        """)
+    except Exception as e:
+        print(f"[migrate] GIN index skipped: {e}", flush=True)
+
+    # OCR flag — marks chunks whose text came from vision-model transcription.
+    try:
+        await pool().execute("""
+            ALTER TABLE chunks
+                ADD COLUMN IF NOT EXISTS ocr_processed BOOLEAN NOT NULL DEFAULT FALSE;
+        """)
+    except Exception as e:
+        print(f"[migrate] ocr_processed column skipped: {e}", flush=True)
+
     # Ensure the embedding column dimension matches the actual model output.
     try:
         test = await embed_texts(["ping"])

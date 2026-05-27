@@ -1,9 +1,19 @@
+import asyncio
+
 from db.client import pool
 from .haiku_utils import HAIKU, call_with_backoff, extract_text, parse_json
+from .search_documents import search_documents
 
-MAX_CHUNKS = 20
-
+MAX_CHUNKS = 50
 VALID_TYPES = {"person", "organization", "date", "amount", "location"}
+
+# Queries designed to surface entity-dense chunks across different entity types.
+_ENTITY_QUERIES = [
+    "official director manager authorized signed by",
+    "organization company corporation contractor vendor",
+    "payment amount cost fee million dollars awarded",
+    "employee staff personnel appointed role title position",
+]
 
 
 async def extract_entities(
@@ -22,7 +32,7 @@ async def extract_entities(
 
     response = await call_with_backoff(
         model=HAIKU,
-        max_tokens=2048,
+        max_tokens=8192,
         messages=[
             {
                 "role": "system",
@@ -47,8 +57,10 @@ async def extract_entities(
         ],
     )
 
-    parsed = parse_json(extract_text(response))
+    raw_text = extract_text(response)
+    parsed = parse_json(raw_text)
     if not isinstance(parsed, list):
+        print(f"[extract_entities] parse_json failed; raw={raw_text[:300]!r}", flush=True)
         return {"entities": [], "newCount": 0}
 
     entities = [e for e in parsed if _is_valid(e)]
@@ -58,17 +70,29 @@ async def extract_entities(
 
 
 async def _fetch_chunks(scope: str, workspace_id: str) -> list:
-    if scope == "full":
+    if scope != "full":
+        # Single-document extraction — fetch in order
         return await pool().fetch(
             "SELECT content, start_page FROM chunks "
-            "WHERE workspace_id = $1 ORDER BY document_id, chunk_index LIMIT $2",
-            workspace_id, MAX_CHUNKS,
+            "WHERE workspace_id = $1 AND document_id = $2 ORDER BY chunk_index LIMIT $3",
+            workspace_id, scope, MAX_CHUNKS,
         )
-    return await pool().fetch(
-        "SELECT content, start_page FROM chunks "
-        "WHERE workspace_id = $1 AND document_id = $2 ORDER BY chunk_index LIMIT $3",
-        workspace_id, scope, MAX_CHUNKS,
+
+    # Full-corpus extraction: use targeted semantic searches to find entity-rich
+    # chunks instead of reading the first N chunks in document order.
+    results = await asyncio.gather(
+        *[search_documents(q, workspace_id, limit=12) for q in _ENTITY_QUERIES]
     )
+
+    seen: set[str] = set()
+    chunks: list[dict] = []
+    for result in results:
+        for r in result["results"]:
+            if r["chunkId"] not in seen:
+                seen.add(r["chunkId"])
+                chunks.append({"start_page": r["startPage"], "content": r["content"]})
+
+    return chunks[:MAX_CHUNKS]
 
 
 def _is_valid(e: object) -> bool:

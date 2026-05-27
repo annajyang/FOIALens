@@ -95,7 +95,7 @@ async def investigate(body: InvestigateRequest):
 
 
 async def _fetch_context(workspace_id: str):
-    docs, chunk_count, prior_runs, pinned, prior_angles = await asyncio.gather(
+    docs, chunk_count, prior_runs, pinned = await asyncio.gather(
         pool().fetch(
             "SELECT filename, page_count FROM documents WHERE workspace_id = $1 ORDER BY created_at",
             workspace_id,
@@ -106,6 +106,5 @@ async def _fetch_context(workspace_id: str):
             workspace_id,
         ),
         pool().fetch("SELECT title FROM angles WHERE workspace_id = $1 AND status = 'pinned'", workspace_id),
-        pool().fetch("SELECT title FROM angles WHERE workspace_id = $1 AND status != 'pinned'", workspace_id),
     )
-    return docs, chunk_count, prior_runs, pinned, prior_angles
+    return docs, chunk_count, prior_runs, pinned, []

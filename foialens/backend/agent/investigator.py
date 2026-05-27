@@ -41,6 +41,9 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
     acc_entities: list[dict] = []
     acc_events: list[dict] = []
     angle_count = 0
+    total_tool_calls = 0
+    mid_loop_nudge_sent = False  # fires once after 5+ tool calls with no angles
+    no_tool_reminders = 0        # escalates each time the model stops tools with no angles
 
     try:
         for i in range(MAX_ITERATIONS):
@@ -93,10 +96,17 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                 # No tool calls → final response
                 # If nothing was proposed yet, force one more tool-enabled pass.
                 if angle_count == 0 and not is_final_turn:
-                    messages.append({"role": "user", "content":
-                        "You have not proposed any story angles yet. "
-                        "Review your search results above and call propose_angle at least once "
-                        "with the most newsworthy finding, even if confidence is low."})
+                    no_tool_reminders += 1
+                    if no_tool_reminders >= 2:
+                        messages.append({"role": "user", "content":
+                            "IMPORTANT: You have been asked multiple times to propose story angles "
+                            "and have not done so. Call propose_angle immediately with any newsworthy "
+                            "finding. Propose at least one angle regardless of confidence level."})
+                    else:
+                        messages.append({"role": "user", "content":
+                            "You have not proposed any story angles yet. "
+                            "Review your search results above and call propose_angle at least once "
+                            "with the most newsworthy finding, even if confidence is low."})
                     continue
 
                 final_text = (msg.content or "").strip()
@@ -126,6 +136,8 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                     "newTimelineEventCount": new_event_count,
                 }
                 return
+
+            total_tool_calls += len(all_calls)
 
             # Execute tool calls (from API or from parsed text)
             for tc in all_calls:
@@ -167,6 +179,15 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                 trace.append({"type": "tool_call", "tool": name, "input": input_data,
                                "resultSummary": result_summary, "timestamp": timestamp})
                 messages.append({"role": "tool", "tool_call_id": tc_id, "content": json.dumps(result)})
+
+            # Mid-loop nudge: fires once after ≥5 tool calls with no angles proposed
+            if (angle_count == 0 and total_tool_calls >= 5
+                    and not mid_loop_nudge_sent and not is_final_turn):
+                mid_loop_nudge_sent = True
+                messages.append({"role": "user", "content":
+                    f"You have now run {total_tool_calls} tool calls without proposing any story angles. "
+                    "Stop searching and call propose_angle now with the most newsworthy finding. "
+                    "You have enough information — propose at least one angle before continuing."})
 
         # Should be unreachable: final turn has no tools so always produces end_turn.
         # Guard against unexpected model behavior by flushing whatever we have.
@@ -233,13 +254,21 @@ async def _merge_into_workspace(
     new_events: list[dict],
     ctx: WorkspaceContext,
 ) -> tuple[int, int]:
-    existing_names = {e["name"].lower() for e in ctx.existing_entities}
+    # Re-read current DB state so we never clobber entities/timeline that were
+    # saved by a prior run but are absent from the snapshot taken at run start.
+    ws_row = await pool().fetchrow(
+        "SELECT entities, timeline FROM workspaces WHERE id = $1", workspace_id
+    )
+    current_entities: list[dict] = (ws_row["entities"] or []) if ws_row else []
+    current_timeline: list[dict] = (ws_row["timeline"] or []) if ws_row else []
+
+    existing_names = {e["name"].lower() for e in current_entities}
     new_entity_count = sum(1 for e in new_entities if e["name"].lower() not in existing_names)
 
-    merged_entities = _merge_entities(ctx.existing_entities, new_entities, first_seen_run_id=run_id)
+    merged_entities = _merge_entities(current_entities, new_entities, first_seen_run_id=run_id)
 
-    seen_keys = {_event_key(e) for e in ctx.existing_timeline}
-    merged_timeline = list(ctx.existing_timeline)
+    seen_keys = {_event_key(e) for e in current_timeline}
+    merged_timeline = list(current_timeline)
     new_event_count = 0
     for e in new_events:
         k = _event_key(e)

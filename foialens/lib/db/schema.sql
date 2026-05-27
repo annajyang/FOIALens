@@ -48,10 +48,11 @@ CREATE TABLE IF NOT EXISTS chunks (
   content      TEXT NOT NULL,
   start_page   INTEGER NOT NULL,
   end_page     INTEGER NOT NULL,
-  chunk_index  INTEGER NOT NULL,
-  token_count  INTEGER,
-  embedding    vector(1024),
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  chunk_index    INTEGER NOT NULL,
+  token_count    INTEGER,
+  embedding      vector(1024),
+  ocr_processed  BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_workspace ON chunks(workspace_id);

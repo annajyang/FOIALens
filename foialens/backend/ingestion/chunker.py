@@ -22,12 +22,14 @@ class RawChunk:
     end_page: int
     chunk_index: int
     token_count: int  # approximate: chars / 4
+    ocr_processed: bool = False  # True if any sentence in this chunk came from OCR
 
 
 @dataclass
 class _Tagged:
     text: str
     page: int
+    ocr_processed: bool = False
 
 
 def chunk_pages(pages: list[PagedText]) -> list[RawChunk]:
@@ -41,7 +43,7 @@ def _tag_sentences(pages: list[PagedText]) -> list[_Tagged]:
         for s in _split_sentences(p.text):
             s = s.strip()
             if s:
-                result.append(_Tagged(text=s, page=p.page))
+                result.append(_Tagged(text=s, page=p.page, ocr_processed=p.ocr_processed))
     return result
 
 
@@ -78,6 +80,7 @@ def _group(sentences: list[_Tagged]) -> list[RawChunk]:
             end_page=buf[-1].page,
             chunk_index=idx,
             token_count=round(len(content) / 4),
+            ocr_processed=any(s.ocr_processed for s in buf),
         ))
         idx += 1
         overlap_len = 0

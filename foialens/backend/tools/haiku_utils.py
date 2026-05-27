@@ -44,13 +44,32 @@ def extract_text(response) -> str:
 def parse_json(text: str):
     cleaned = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+    # Clean parse
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        m = re.search(r"\[[\s\S]*\]", cleaned)
-        if m:
-            try:
-                return json.loads(m.group())
-            except json.JSONDecodeError:
-                pass
+        pass
+
+    # Complete [...] block anywhere in the text
+    m = re.search(r"\[[\s\S]*\]", cleaned)
+    if m:
+        try:
+            return json.loads(m.group())
+        except json.JSONDecodeError:
+            pass
+
+    # Truncated-array recovery: slice up to the last complete '}' and close the array.
+    # Handles the case where the model hit max_tokens mid-JSON.
+    start = cleaned.find("[")
+    last_obj_end = cleaned.rfind("}")
+    if start != -1 and last_obj_end > start:
+        try:
+            result = json.loads(cleaned[start : last_obj_end + 1] + "]")
+            if isinstance(result, list) and result:
+                print(f"[parse_json] recovered {len(result)} item(s) from truncated output", flush=True)
+                return result
+        except json.JSONDecodeError:
+            pass
+
     return None

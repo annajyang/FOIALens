@@ -45,7 +45,7 @@ async def ingest_files(files: list[UploadFile], workspace_id: str) -> dict:
 
 async def _ingest_one(file: UploadFile, workspace_id: str) -> int:
     content = await file.read()
-    pages = extract_pages(content)
+    pages = await extract_pages(content)
     if not pages:
         raise ValueError(
             f"{file.filename} contains no extractable text. "
@@ -75,12 +75,13 @@ async def _ingest_one(file: UploadFile, workspace_id: str) -> int:
                 await conn.execute(
                     "INSERT INTO chunks "
                     "  (document_id, workspace_id, content, start_page, end_page, "
-                    "   chunk_index, token_count, embedding) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)",
+                    "   chunk_index, token_count, embedding, ocr_processed) "
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9)",
                     doc_id, workspace_id, chunk.content,
                     chunk.start_page, chunk.end_page,
                     chunk.chunk_index, chunk.token_count,
                     to_vector_string(embedding),
+                    chunk.ocr_processed,
                 )
 
     return len(chunks)

@@ -55,7 +55,7 @@ function deriveFollowUps(angle: Angle): string[] {
     other: [
       'What additional documents would confirm or refute this angle?',
       'Who would have direct knowledge and could be interviewed?',
-      'Request related records via supplementary FOIA.',
+      'Are there other gaps in this document trail?',
     ],
   };
   return byType[angle.angleType] ?? byType.other;
@@ -66,13 +66,45 @@ function findDocForPage(documents: Document[], page: number): Document | null {
   return documents.find(d => d.pageCount != null && d.pageCount >= page) ?? documents[0] ?? null;
 }
 
+/* ── Agent seed message with clickable evidence ────────────────────────── */
+function buildAgentSeed(angle: Angle, documents: Document[]): string {
+  const lines: string[] = [`I've reviewed the evidence on this angle.`, ''];
+
+  if (angle.evidence.length > 0) {
+    lines.push('**Evidence**');
+    angle.evidence.forEach(ev => lines.push(`- ${ev}`));
+    lines.push('');
+  }
+
+  if (angle.citations.length > 0) {
+    const cites = angle.citations.map(c => {
+      const doc = findDocForPage(documents, c.page);
+      return doc ? `[${doc.filename}, p.${c.page}]` : `[p.${c.page}]`;
+    });
+    lines.push(`**Sources:** ${cites.join(' · ')}`);
+    lines.push('');
+  }
+
+  lines.push('What would you like to dig into first?');
+  return lines.join('\n');
+}
+
 /* ── Chat system prompt ────────────────────────────────────────────────── */
-function buildChatSystem(angle: Angle, workspaceName: string): string {
+function buildChatSystem(angle: Angle, workspaceName: string, documents: Document[]): string {
+  const docList = documents
+    .map(d => `  • ${d.filename}${d.pageCount ? ` (${d.pageCount} pp.)` : ''}`)
+    .join('\n');
+
   const lines = [
     `You are an investigative-journalism research assistant working on case: ${workspaceName}.`,
     `You are focused on a single story angle the reporter has pinned.`,
-    `Always ground claims in the supplied evidence. Refer to documents by short name and page when possible.`,
+    `Always ground claims in the supplied evidence.`,
+    `When citing a source you MUST use this EXACT format: [filename, p.N] — for example [contract_report.pdf, p.12].`,
+    `Rules: (1) always include the document filename, (2) use "p." not "pp.", (3) cite only one page number per bracket — never ranges like "pp.1-2", (4) no other citation format is allowed.`,
     `Keep responses tight — 3–6 sentences unless asked for more.`,
+    ``,
+    `CORPUS DOCUMENTS:`,
+    docList,
     ``,
     `ANGLE — ${angle.title}`,
     `Newsworthiness: ${angle.newsworthiness}  ·  Type: ${angle.angleType}`,
@@ -84,7 +116,11 @@ function buildChatSystem(angle: Angle, workspaceName: string): string {
     ...angle.evidence.map((e, i) => `  [${i + 1}] ${e}`),
     ``,
     `SOURCE PAGES:`,
-    ...angle.citations.map(c => `  - p.${c.page}${c.excerpt ? `: "${c.excerpt.slice(0, 80)}…"` : ''}`),
+    ...angle.citations.map(c => {
+      const doc = findDocForPage(documents, c.page);
+      const ref = doc ? `[${doc.filename}, p.${c.page}]` : `p.${c.page}`;
+      return `  - ${ref}${c.excerpt ? `: "${c.excerpt.slice(0, 80)}…"` : ''}`;
+    }),
   ];
   return lines.join('\n');
 }
@@ -95,6 +131,8 @@ export default function WorkspacePage() {
   const router = useRouter();
 
   const [workspace,   setWorkspace]   = useState<WorkspaceDetail | null>(null);
+  const workspaceRef = useRef<WorkspaceDetail | null>(null);
+  useEffect(() => { workspaceRef.current = workspace; }, [workspace]);
   const [angles,      setAngles]      = useState<Angle[]>([]);
   const [trace,       setTrace]       = useState<TraceEntry[]>([]);
   const [running,     setRunning]     = useState(false);
@@ -162,7 +200,7 @@ export default function WorkspacePage() {
         const followUps = deriveFollowUps(angle);
         const seed: ChatMsg[] = [
           { role: 'system', content: `Investigation thread opened for angle — "${angle.title}". Evidence loaded as context.`, ts: Date.now() },
-          { role: 'agent', content: `I've reviewed the evidence on this angle. Newsworthiness: ${angle.newsworthiness}, type: ${angle.angleType}. ${angle.citations.length} source page${angle.citations.length === 1 ? '' : 's'} cited. What would you like to dig into first?`, ts: Date.now(), quickReplies: followUps },
+          { role: 'agent', content: buildAgentSeed(angle, workspaceRef.current?.documents ?? []), ts: Date.now(), quickReplies: followUps },
         ];
         return { ...prev, [angleId]: seed };
       });
@@ -374,7 +412,6 @@ Generate ONE specific, focused investigation question a journalist should pursue
           : <button className="btn btn-amber" onClick={() => setSaveOpen(true)}>Save workspace</button>
         }
         <button className="btn btn-amber" onClick={() => setAddDocsOpen(true)} disabled={running}>＋ Add docs</button>
-        <button className="btn">Export</button>
         <button className="btn btn-danger" onClick={() => setDeleteOpen(true)} disabled={running}>Delete</button>
       </header>
 
@@ -769,6 +806,8 @@ Generate ONE specific, focused investigation question a journalist should pursue
           draft={chatDraft}
           onDraftConsumed={() => setChatDraft('')}
           workspaceName={workspace.name}
+          documents={workspace.documents}
+          onOpenDoc={openViewer}
         />
       )}
     </div>
@@ -901,46 +940,19 @@ function AngleCard({ angle, isSelected, delay, onSelect, onPatch, onOpenDoc, onO
 
 /* ── Inspector ───────────────────────────────────────────────────────────── */
 
-function Inspector({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCount }: {
-  angle: Angle | null;
+function InspectorBody({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCount }: {
+  angle: Angle;
   onPatch: (id: string, status: AngleStatus) => void;
   onOpenDoc: (page: number) => void;
   onOpenChat: (id: string, draft?: string) => void;
   hasChat: boolean;
   chatMsgCount: number;
 }) {
-  if (!angle) {
-    return (
-      <aside className="inspector">
-        <div className="inspector-empty">
-          // FOIALens inspector<br/>
-          // ────────────────<br/>
-          Select an angle card to inspect<br/>
-          evidence, entities, and follow-up<br/>
-          questions.<span className="blink" />
-        </div>
-      </aside>
-    );
-  }
-
   const isPinned  = angle.status === 'pinned';
   const followUps = deriveFollowUps(angle);
 
   return (
-    <aside className="inspector">
-      <div className="insp-head">
-        <div className="insp-id">
-          <span>{angle.id.slice(0, 8).toUpperCase()}</span>
-          <span style={{ color: 'var(--fg-mute)' }}>·</span>
-          <span>{isPinned ? '★ PINNED' : 'PROPOSED'}</span>
-        </div>
-        <h3>{angle.title}</h3>
-        <div className="meta-row">
-          <span className={`badge sev-${angle.newsworthiness.toUpperCase()}`}>● {angle.newsworthiness.toUpperCase()}</span>
-          <span className="badge type">{angle.angleType}</span>
-        </div>
-      </div>
-
+    <>
       <div className="insp-section">
         <h4>Summary</h4>
         <p>{angle.summary}</p>
@@ -976,7 +988,7 @@ function Inspector({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCoun
                 </div>
                 {c.excerpt && (
                   <div style={{ borderLeft: '2px solid var(--border-strong)', paddingLeft: 8, fontSize: 12, color: 'var(--fg-dim)', fontStyle: 'italic', lineHeight: 1.5 }}>
-                    "{c.excerpt}"
+                    &ldquo;{c.excerpt}&rdquo;
                   </div>
                 )}
               </div>
@@ -997,7 +1009,6 @@ function Inspector({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCoun
                   onOpenChat(angle.id, q);
                 } else {
                   onPatch(angle.id, 'pinned');
-                  // draft will be applied once chat is opened
                   setTimeout(() => onOpenChat(angle.id, q), 100);
                 }
               }}
@@ -1022,6 +1033,92 @@ function Inspector({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCoun
           <button className="btn" style={{ flex: '1 1 120px' }} onClick={() => onPatch(angle.id, 'dismissed')}>Dismiss</button>
         )}
       </div>
+    </>
+  );
+}
+
+function Inspector({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCount }: {
+  angle: Angle | null;
+  onPatch: (id: string, status: AngleStatus) => void;
+  onOpenDoc: (page: number) => void;
+  onOpenChat: (id: string, draft?: string) => void;
+  hasChat: boolean;
+  chatMsgCount: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!angle) {
+    return (
+      <aside className="inspector">
+        <div className="inspector-empty">
+          // FOIALens inspector<br/>
+          // ────────────────<br/>
+          Select an angle card to inspect<br/>
+          evidence, entities, and follow-up<br/>
+          questions.<span className="blink" />
+        </div>
+      </aside>
+    );
+  }
+
+  const isPinned = angle.status === 'pinned';
+
+  return (
+    <aside className="inspector">
+      <div className="insp-head">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+          <div className="insp-id">
+            <span>{angle.id.slice(0, 8).toUpperCase()}</span>
+            <span style={{ color: 'var(--fg-mute)' }}>·</span>
+            <span>{isPinned ? '★ PINNED' : 'PROPOSED'}</span>
+          </div>
+          <button className="insp-expand-btn" onClick={() => setExpanded(true)} title="Expand to full view">⤢</button>
+        </div>
+        <h3>{angle.title}</h3>
+        <div className="meta-row">
+          <span className={`badge sev-${angle.newsworthiness.toUpperCase()}`}>● {angle.newsworthiness.toUpperCase()}</span>
+          <span className="badge type">{angle.angleType}</span>
+        </div>
+      </div>
+
+      <InspectorBody
+        angle={angle}
+        onPatch={onPatch}
+        onOpenDoc={onOpenDoc}
+        onOpenChat={onOpenChat}
+        hasChat={hasChat}
+        chatMsgCount={chatMsgCount}
+      />
+
+      {expanded && (
+        <div className="modal-back" onClick={() => setExpanded(false)}>
+          <div className="insp-modal" onClick={e => e.stopPropagation()}>
+            <div className="insp-modal-head">
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 9.5, letterSpacing: '0.08em', color: 'var(--amber)', marginBottom: 6 }}>
+                  {angle.id.slice(0, 8).toUpperCase()} · {isPinned ? '★ PINNED' : 'PROPOSED'}
+                </div>
+                <h3>{angle.title}</h3>
+                <div className="meta-row" style={{ marginTop: 8 }}>
+                  <span className={`badge sev-${angle.newsworthiness.toUpperCase()}`}>● {angle.newsworthiness.toUpperCase()}</span>
+                  <span className="badge type">{angle.angleType}</span>
+                </div>
+              </div>
+              <button className="btn btn-sm" onClick={() => setExpanded(false)}>ESC ×</button>
+            </div>
+            <div className="insp-modal-body">
+              <InspectorBody
+                angle={angle}
+                onPatch={onPatch}
+                onOpenDoc={(page) => { setExpanded(false); onOpenDoc(page); }}
+                onOpenChat={(id, draft) => { setExpanded(false); onOpenChat(id, draft); }}
+                hasChat={hasChat}
+                chatMsgCount={chatMsgCount}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
@@ -1393,7 +1490,7 @@ function DocViewer({ open, doc, pages, focusPage, onClose, citations, documents 
 
 /* ── Chat dock ───────────────────────────────────────────────────────────── */
 
-function ChatDock({ openIds, setOpenIds, activeId, setActiveId, threads, setThreads, anglesById, minimized, setMinimized, draft, onDraftConsumed, workspaceName }: {
+function ChatDock({ openIds, setOpenIds, activeId, setActiveId, threads, setThreads, anglesById, minimized, setMinimized, draft, onDraftConsumed, workspaceName, documents, onOpenDoc }: {
   openIds: string[];
   setOpenIds: (ids: string[]) => void;
   activeId: string | null;
@@ -1406,12 +1503,52 @@ function ChatDock({ openIds, setOpenIds, activeId, setActiveId, threads, setThre
   draft: string;
   onDraftConsumed: () => void;
   workspaceName: string;
+  documents: Document[];
+  onOpenDoc: (doc: string, pages: number[], focus: number) => void;
 }) {
   const closeTab = (id: string) => {
     const next = openIds.filter(x => x !== id);
     setOpenIds(next);
     if (activeId === id) setActiveId(next[0] ?? null);
   };
+
+  // Draggable mini-pill state
+  const [miniPos, setMiniPos] = useState<{ x: number; y: number } | null>(null);
+  const movedRef = useRef(false);
+
+  const onMiniMouseDown = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    movedRef.current = false;
+
+    const dockEl = e.currentTarget.closest<HTMLElement>('.chat-dock')!;
+    const rect   = dockEl.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX  = rect.left;
+    const origY  = rect.top;
+
+    function onMove(ev: MouseEvent) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!movedRef.current && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      movedRef.current = true;
+      document.body.style.cursor = 'grabbing';
+      setMiniPos({
+        x: Math.max(0, Math.min(window.innerWidth  - dockEl.offsetWidth,  origX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight - dockEl.offsetHeight, origY + dy)),
+      });
+    }
+
+    function onUp() {
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+    }
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup',   onUp);
+  }, []);
 
   const appendMsg = (angleId: string, msg: ChatMsg) => {
     setThreads(prev => {
@@ -1444,15 +1581,38 @@ function ChatDock({ openIds, setOpenIds, activeId, setActiveId, threads, setThre
     const followUps = deriveFollowUps(angle);
     const seed: ChatMsg[] = [
       { role: 'system', content: `Investigation thread opened for angle — "${angle.title}". Evidence loaded as context.`, ts: Date.now() },
-      { role: 'agent', content: `I've reviewed the evidence on this angle. What would you like to dig into first?`, ts: Date.now(), quickReplies: followUps },
+      { role: 'agent', content: buildAgentSeed(angle, documents), ts: Date.now(), quickReplies: followUps },
     ];
     setThreads(prev => ({ ...prev, [angleId]: seed }));
   };
 
   const activeAngle = activeId ? anglesById[activeId] : null;
 
+  if (minimized) {
+    const miniStyle: React.CSSProperties = miniPos
+      ? { left: miniPos.x, top: miniPos.y, right: 'auto', bottom: 'auto' }
+      : {};
+    return (
+      <div className="chat-dock mini" style={miniStyle}>
+        <button
+          className="chat-dock-icon"
+          style={{ cursor: 'grab' }}
+          onMouseDown={onMiniMouseDown}
+          onClick={() => {
+            if (movedRef.current) { movedRef.current = false; return; }
+            setMiniPos(null);
+            setMinimized(false);
+          }}
+        >
+          <span>★ THREADS</span>
+          <span className="chat-dock-badge">{openIds.length}</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`chat-dock ${minimized ? 'mini' : ''}`}>
+    <div className="chat-dock">
       <div className="chat-tabs">
         <span className="chat-tabs-label">★ THREADS</span>
         {openIds.map(id => {
@@ -1462,7 +1622,7 @@ function ChatDock({ openIds, setOpenIds, activeId, setActiveId, threads, setThre
           const last = msgs[msgs.length - 1];
           const isTyping = last?.role === 'agent' && last.streaming;
           return (
-            <button key={id} className={`chat-tab ${activeId === id ? 'active' : ''}`} onClick={() => { setActiveId(id); setMinimized(false); }} title={a.title}>
+            <button key={id} className={`chat-tab ${activeId === id ? 'active' : ''}`} onClick={() => setActiveId(id)} title={a.title}>
               <span className="chat-tab-id">{a.id.slice(0, 5).toUpperCase()}</span>
               <span className="chat-tab-head">{a.title.length > 26 ? a.title.slice(0, 25) + '…' : a.title}</span>
               {isTyping && <span className="chat-tab-dot" />}
@@ -1471,10 +1631,10 @@ function ChatDock({ openIds, setOpenIds, activeId, setActiveId, threads, setThre
           );
         })}
         <span style={{ flex: 1 }} />
-        <button className="chat-mini" onClick={() => setMinimized(m => !m)}>{minimized ? '▲' : '▼'}</button>
+        <button className="chat-mini" onClick={() => setMinimized(true)}>▼</button>
       </div>
 
-      {!minimized && activeAngle && (
+      {activeAngle && (
         <ChatWindow
           key={activeId!}
           angle={activeAngle}
@@ -1486,13 +1646,15 @@ function ChatDock({ openIds, setOpenIds, activeId, setActiveId, threads, setThre
           externalDraft={draft}
           onDraftConsumed={onDraftConsumed}
           workspaceName={workspaceName}
+          documents={documents}
+          onOpenDoc={onOpenDoc}
         />
       )}
     </div>
   );
 }
 
-function ChatWindow({ angle, messages, onAppend, onUpdateStreaming, onFinishStreaming, onClear, externalDraft, onDraftConsumed, workspaceName }: {
+function ChatWindow({ angle, messages, onAppend, onUpdateStreaming, onFinishStreaming, onClear, externalDraft, onDraftConsumed, workspaceName, documents, onOpenDoc }: {
   angle: Angle;
   messages: ChatMsg[];
   onAppend: (msg: ChatMsg) => void;
@@ -1502,6 +1664,8 @@ function ChatWindow({ angle, messages, onAppend, onUpdateStreaming, onFinishStre
   externalDraft: string;
   onDraftConsumed: () => void;
   workspaceName: string;
+  documents: Document[];
+  onOpenDoc: (doc: string, pages: number[], focus: number) => void;
 }) {
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
@@ -1547,7 +1711,7 @@ function ChatWindow({ angle, messages, onAppend, onUpdateStreaming, onFinishStre
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ system: buildChatSystem(angle, workspaceName), messages: convo }),
+        body: JSON.stringify({ system: buildChatSystem(angle, workspaceName, documents), messages: convo }),
       });
       const { content } = await res.json() as { content: string };
       // Simulate streaming output
@@ -1578,7 +1742,7 @@ function ChatWindow({ angle, messages, onAppend, onUpdateStreaming, onFinishStre
       </div>
 
       <div className="chat-body" ref={scrollRef}>
-        {messages.map((m, i) => <ChatMessage key={i} msg={m} onQuickReply={fillDraft} />)}
+        {messages.map((m, i) => <ChatMessage key={i} msg={m} onQuickReply={fillDraft} documents={documents} onOpenDoc={onOpenDoc} />)}
       </div>
 
       <div className="chat-composer">
@@ -1604,7 +1768,21 @@ function ChatWindow({ angle, messages, onAppend, onUpdateStreaming, onFinishStre
   );
 }
 
-function ChatMessage({ msg, onQuickReply }: { msg: ChatMsg; onQuickReply: (q: string) => void }) {
+// Converts [filename, p.N] (and pp.N-M) citation syntax into #cite/ fragment
+// links. react-markdown v10 strips unknown URL schemes (cite://) but passes
+// fragment-only URLs through defaultUrlTransform unchanged.
+function injectCiteLinks(text: string): string {
+  return text.replace(/\[([^\]]+),\s*pp?\.(\d+)(?:-\d+)?\]/g, (_, filename, page) =>
+    `[[${filename.trim()}, p.${page}]](#cite/${encodeURIComponent(filename.trim())}/${page})`
+  );
+}
+
+function ChatMessage({ msg, onQuickReply, documents, onOpenDoc }: {
+  msg: ChatMsg;
+  onQuickReply: (q: string) => void;
+  documents: Document[];
+  onOpenDoc: (doc: string, pages: number[], focus: number) => void;
+}) {
   if (msg.role === 'system') {
     return <div className="chat-system">// {msg.content}</div>;
   }
@@ -1616,12 +1794,38 @@ function ChatMessage({ msg, onQuickReply }: { msg: ChatMsg; onQuickReply: (q: st
       </div>
     );
   }
+
+  const citeComponents = {
+    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+      if (href?.startsWith('#cite/')) {
+        const rest = href.slice('#cite/'.length);
+        const slashIdx = rest.lastIndexOf('/');
+        const filename = decodeURIComponent(rest.slice(0, slashIdx));
+        const page = parseInt(rest.slice(slashIdx + 1), 10);
+        const doc = documents.find(d => d.filename === filename);
+        return (
+          <button
+            className="chat-cite"
+            onClick={() => doc && onOpenDoc(doc.filename, [page], page)}
+            title={doc ? `Open ${filename} p.${page}` : filename}
+          >
+            {children}
+          </button>
+        );
+      }
+      return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+    },
+  };
+
   return (
     <div className="chat-row agent">
       <div className="chat-meta">▌ AGENT{msg.streaming ? ' · typing…' : ''}</div>
       <div className="chat-bubble agent">
         {msg.content
-          ? <><ReactMarkdown>{msg.content}</ReactMarkdown>{msg.streaming && <span className="chat-cursor">▍</span>}</>
+          ? <>
+              <ReactMarkdown components={citeComponents}>{injectCiteLinks(msg.content)}</ReactMarkdown>
+              {msg.streaming && <span className="chat-cursor">▍</span>}
+            </>
           : <span className="chat-cursor">▍</span>}
       </div>
       {msg.quickReplies && msg.quickReplies.length > 0 && (

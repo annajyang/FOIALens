@@ -106,7 +106,7 @@ async def dispatch_tool(
         case "extract_entities":
             return await extract_entities(input.get("scope", "full"), workspace_id, known_entity_names)
         case "build_timeline":
-            return await build_timeline(workspace_id)
+            return await build_timeline(workspace_id, entity_names=list(known_entity_names))
         case "propose_angle":
             return await propose_angle(input, workspace_id, run_id)
         case _:

@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     });
     const response = await client.chat.completions.create({
       model: process.env.OPENROUTER_MODEL ?? 'google/gemini-3.5-flash',
-      max_tokens: 1024,
+      max_tokens: 4096,
       messages: [{ role: 'system', content: system }, ...messages],
     });
     const text = (response.choices[0]?.message.content ?? '').trim();
