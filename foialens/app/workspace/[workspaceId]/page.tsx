@@ -1772,9 +1772,11 @@ function ChatWindow({ angle, messages, onAppend, onUpdateStreaming, onFinishStre
 // links. react-markdown v10 strips unknown URL schemes (cite://) but passes
 // fragment-only URLs through defaultUrlTransform unchanged.
 function injectCiteLinks(text: string): string {
-  return text.replace(/\[([^\]]+),\s*pp?\.(\d+)(?:-\d+)?\]/g, (_, filename, page) =>
-    `[[${filename.trim()}, p.${page}]](#cite/${encodeURIComponent(filename.trim())}/${page})`
-  );
+  return text.replace(/\[([^\]]+),\s*pp?\.(\d+)(?:-\d+)?\]/g, (_, filename, page) => {
+    const name = filename.trim();
+    const display = name.length > 10 ? name.slice(0, 10) + '…' : name;
+    return `[[${display}, p.${page}]](#cite/${encodeURIComponent(name)}/${page})`;
+  });
 }
 
 function ChatMessage({ msg, onQuickReply, documents, onOpenDoc }: {
