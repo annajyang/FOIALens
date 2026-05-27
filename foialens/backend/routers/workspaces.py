@@ -1,10 +1,11 @@
 import asyncio
-from typing import Optional
+from typing import Annotated, Optional
 
 import asyncpg
-from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
+from auth_utils import decode_jwt
 from db.client import pool
 from ingestion.upload import create_workspace_and_ingest, ingest_files
 from storage.spaces import presigned_url, delete_folder, delete_object
@@ -23,16 +24,25 @@ class ClaimRequest(BaseModel):
     email: str
 
 
-def _session(guest_token: Optional[str], owner_email: Optional[str]) -> tuple[str | None, str | None]:
-    return guest_token or None, (owner_email or "").strip().lower() or None
+def _get_session(
+    x_guest_token: Optional[str] = Header(None),
+    x_owner_email: Optional[str] = Header(None),
+    x_auth_token: Optional[str] = Header(None),
+) -> tuple[str | None, str | None]:
+    """Resolve (guest_token, email). JWT in X-Auth-Token takes precedence."""
+    if x_auth_token:
+        email = decode_jwt(x_auth_token)
+        if email:
+            return None, email
+    return x_guest_token or None, (x_owner_email or "").strip().lower() or None
+
+
+Session = Annotated[tuple[str | None, str | None], Depends(_get_session)]
 
 
 @router.get("/workspaces")
-async def list_workspaces(
-    x_guest_token: Optional[str] = Header(None),
-    x_owner_email: Optional[str] = Header(None),
-):
-    token, email = _session(x_guest_token, x_owner_email)
+async def list_workspaces(session: Session):
+    token, email = session
     rows = await pool().fetch("""
         SELECT
             w.id, w.name, w.status, w.created_at, w.owner_email, w.expires_at,
@@ -71,12 +81,8 @@ async def list_workspaces(
 
 
 @router.get("/workspaces/{workspace_id}")
-async def get_workspace(
-    workspace_id: str,
-    x_guest_token: Optional[str] = Header(None),
-    x_owner_email: Optional[str] = Header(None),
-):
-    token, email = _session(x_guest_token, x_owner_email)
+async def get_workspace(workspace_id: str, session: Session):
+    token, email = session
     try:
         ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
     except asyncpg.DataError:
@@ -141,13 +147,8 @@ async def get_workspace(
 
 
 @router.patch("/workspaces/{workspace_id}")
-async def rename_workspace(
-    workspace_id: str,
-    body: RenameRequest,
-    x_guest_token: Optional[str] = Header(None),
-    x_owner_email: Optional[str] = Header(None),
-):
-    token, email = _session(x_guest_token, x_owner_email)
+async def rename_workspace(workspace_id: str, body: RenameRequest, session: Session):
+    token, email = session
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name cannot be empty.")
@@ -166,12 +167,8 @@ async def rename_workspace(
 
 
 @router.delete("/workspaces/{workspace_id}", status_code=204)
-async def delete_workspace(
-    workspace_id: str,
-    x_guest_token: Optional[str] = Header(None),
-    x_owner_email: Optional[str] = Header(None),
-):
-    token, email = _session(x_guest_token, x_owner_email)
+async def delete_workspace(workspace_id: str, session: Session):
+    token, email = session
     try:
         ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
     except asyncpg.DataError:
@@ -192,13 +189,8 @@ async def delete_workspace(
 
 
 @router.post("/workspaces/{workspace_id}/claim")
-async def claim_workspace(
-    workspace_id: str,
-    body: ClaimRequest,
-    x_guest_token: Optional[str] = Header(None),
-    x_owner_email: Optional[str] = Header(None),
-):
-    token, email = _session(x_guest_token, x_owner_email)
+async def claim_workspace(workspace_id: str, body: ClaimRequest, session: Session):
+    token, email = session
     claim_email = body.email.strip().lower()
     if not claim_email or "@" not in claim_email:
         raise HTTPException(status_code=400, detail="A valid email is required.")
@@ -220,11 +212,14 @@ async def claim_workspace(
 async def create_workspace(
     name: str = Form(...),
     files: list[UploadFile] = File(...),
-    x_guest_token: Optional[str] = Header(None),
+    session: Session = Depends(_get_session),
 ):
+    token, email = session
     _validate_files(files)
     try:
-        result = await create_workspace_and_ingest(name, files, guest_token=x_guest_token or None)
+        result = await create_workspace_and_ingest(
+            name, files, guest_token=token, owner_email=email
+        )
         return {
             "workspaceId": result["workspaceId"],
             "status": "ready",
@@ -241,10 +236,9 @@ async def create_workspace(
 async def upload_to_workspace(
     workspace_id: str,
     files: list[UploadFile] = File(...),
-    x_guest_token: Optional[str] = Header(None),
-    x_owner_email: Optional[str] = Header(None),
+    session: Session = Depends(_get_session),
 ):
-    token, email = _session(x_guest_token, x_owner_email)
+    token, email = session
     try:
         ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
     except asyncpg.DataError:
@@ -271,12 +265,8 @@ async def upload_to_workspace(
 
 
 @router.delete("/documents/{doc_id}", status_code=204)
-async def delete_document(
-    doc_id: str,
-    x_guest_token: Optional[str] = Header(None),
-    x_owner_email: Optional[str] = Header(None),
-):
-    token, email = _session(x_guest_token, x_owner_email)
+async def delete_document(doc_id: str, session: Session):
+    token, email = session
     try:
         row = await pool().fetchrow(
             "SELECT d.id, d.file_key, d.workspace_id, w.guest_token, w.owner_email "

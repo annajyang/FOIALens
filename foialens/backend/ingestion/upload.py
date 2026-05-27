@@ -14,7 +14,12 @@ _SPACES_CONFIGURED = all(
 )
 
 
-async def create_workspace_and_ingest(name: str, files: list[UploadFile], guest_token: str | None = None) -> dict:
+async def create_workspace_and_ingest(
+    name: str,
+    files: list[UploadFile],
+    guest_token: str | None = None,
+    owner_email: str | None = None,
+) -> dict:
     import uuid as _uuid
     token_val = None
     if guest_token:
@@ -22,10 +27,14 @@ async def create_workspace_and_ingest(name: str, files: list[UploadFile], guest_
             token_val = str(_uuid.UUID(guest_token))
         except ValueError:
             pass
+    email_val = (owner_email or "").strip().lower() or None
+    # Workspaces with an owner email don't expire.
     row = await pool().fetchrow(
-        "INSERT INTO workspaces (name, status, guest_token, expires_at) "
-        "VALUES ($1, 'ingesting', $2::uuid, NOW() + INTERVAL '7 days') RETURNING id",
-        name.strip(), token_val,
+        "INSERT INTO workspaces (name, status, guest_token, owner_email, expires_at) "
+        "VALUES ($1, 'ingesting', $2::uuid, $3, "
+        "        CASE WHEN $3 IS NOT NULL THEN NULL ELSE NOW() + INTERVAL '7 days' END) "
+        "RETURNING id",
+        name.strip(), token_val, email_val,
     )
     workspace_id = str(row["id"])
     result = await ingest_files(files, workspace_id)

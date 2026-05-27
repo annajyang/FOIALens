@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '../lib/api';
-import { getOwnerEmail, setOwnerEmail } from '../lib/session';
+import { getSessionEmail, setAuthToken, clearAuthToken, isSignedIn } from '../lib/session';
 import type { WorkspaceListItem } from '../lib/types';
 import UploadZone from '../components/UploadZone';
 
@@ -17,25 +17,27 @@ export default function Home() {
   const [files, setFiles]           = useState<File[]>([]);
   const [creating, setCreating]     = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [emailDraft, setEmailDraft] = useState('');
   const [signedInAs, setSignedInAs] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Sign-in modal state
+  const [signInOpen, setSignInOpen]     = useState(false);
+  const [signInStep, setSignInStep]     = useState<'email' | 'code'>('email');
+  const [signInEmail, setSignInEmail]   = useState('');
+  const [signInCode, setSignInCode]     = useState('');
+  const [signInLoading, setSignInLoading] = useState(false);
+  const [signInError, setSignInError]   = useState<string | null>(null);
+
   useEffect(() => {
-    setSignedInAs(getOwnerEmail());
+    setSignedInAs(getSessionEmail());
     api.listWorkspaces()
       .then(setWorkspaces)
       .catch(e => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
-  function handleSignIn() {
-    const e = emailDraft.trim().toLowerCase();
-    if (!e || !e.includes('@')) return;
-    setOwnerEmail(e);
-    setSignedInAs(e);
-    setEmailDraft('');
+  function reloadWorkspaces() {
     setLoading(true);
     api.listWorkspaces()
       .then(setWorkspaces)
@@ -43,14 +45,57 @@ export default function Home() {
       .finally(() => setLoading(false));
   }
 
+  function openSignIn() {
+    setSignInStep('email');
+    setSignInEmail('');
+    setSignInCode('');
+    setSignInError(null);
+    setSignInOpen(true);
+  }
+
+  function closeSignIn() {
+    setSignInOpen(false);
+    setSignInError(null);
+  }
+
+  async function handleRequestCode() {
+    const email = signInEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) return;
+    setSignInLoading(true);
+    setSignInError(null);
+    try {
+      await api.requestCode(email);
+      setSignInStep('code');
+    } catch (e: unknown) {
+      setSignInError(e instanceof Error ? e.message : 'Failed to send code.');
+    } finally {
+      setSignInLoading(false);
+    }
+  }
+
+  async function handleVerifyCode() {
+    const email = signInEmail.trim().toLowerCase();
+    const code  = signInCode.trim();
+    if (!code) return;
+    setSignInLoading(true);
+    setSignInError(null);
+    try {
+      const { token, email: verifiedEmail } = await api.verifyCode(email, code);
+      setAuthToken(token);
+      setSignedInAs(verifiedEmail);
+      closeSignIn();
+      reloadWorkspaces();
+    } catch (e: unknown) {
+      setSignInError(e instanceof Error ? e.message : 'Invalid code.');
+    } finally {
+      setSignInLoading(false);
+    }
+  }
+
   function handleSignOut() {
-    setOwnerEmail('');
+    clearAuthToken();
     setSignedInAs('');
-    setLoading(true);
-    api.listWorkspaces()
-      .then(setWorkspaces)
-      .catch(e => setLoadError(e.message))
-      .finally(() => setLoading(false));
+    reloadWorkspaces();
   }
 
   function closeModal() {
@@ -89,17 +134,7 @@ export default function Home() {
             <button className="btn btn-sm" onClick={handleSignOut}>Sign out</button>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input
-              type="email"
-              placeholder="Recover workspaces by email…"
-              value={emailDraft}
-              onChange={e => setEmailDraft(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSignIn()}
-              style={{ padding: '4px 8px', background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--mono)', fontSize: 11, outline: 'none', width: 220 }}
-            />
-            <button className="btn btn-sm" onClick={handleSignIn} disabled={!emailDraft.trim()}>Sign in</button>
-          </div>
+          <button className="btn btn-sm" onClick={openSignIn}>Sign in</button>
         )}
         <button className="btn btn-amber" onClick={() => setShowModal(true)}>＋ New workspace</button>
       </header>
@@ -224,6 +259,74 @@ export default function Home() {
               >
                 {deleting ? 'Deleting…' : 'Delete workspace'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* sign-in modal */}
+      {signInOpen && (
+        <div className="modal-back" onClick={closeSignIn}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-head">
+              <h3>{signInStep === 'email' ? 'Sign in' : 'Enter your code'}</h3>
+              <button className="btn btn-sm" onClick={closeSignIn}>Close</button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {signInStep === 'email' ? (
+                <>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
+                    Enter your email and we'll send you a 6-digit sign-in code.
+                  </p>
+                  <input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={signInEmail}
+                    onChange={e => setSignInEmail(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleRequestCode()}
+                    autoFocus
+                    style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--sans)', fontSize: 13, outline: 'none' }}
+                  />
+                </>
+              ) : (
+                <>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
+                    Code sent to <b>{signInEmail}</b>. Check your inbox.
+                  </p>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="000000"
+                    maxLength={6}
+                    value={signInCode}
+                    onChange={e => setSignInCode(e.target.value.replace(/\D/g, ''))}
+                    onKeyDown={e => e.key === 'Enter' && handleVerifyCode()}
+                    autoFocus
+                    style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--mono)', fontSize: 22, letterSpacing: '0.25em', outline: 'none', textAlign: 'center' }}
+                  />
+                  <button
+                    style={{ background: 'none', border: 'none', padding: 0, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-mute)', cursor: 'pointer', letterSpacing: '0.06em', textAlign: 'left' }}
+                    onClick={() => { setSignInStep('email'); setSignInCode(''); setSignInError(null); }}
+                  >
+                    ← Use a different email
+                  </button>
+                </>
+              )}
+              {signInError && (
+                <p style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--red)' }}>{signInError}</p>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={closeSignIn} disabled={signInLoading}>Cancel</button>
+              {signInStep === 'email' ? (
+                <button className="btn btn-amber" onClick={handleRequestCode} disabled={!signInEmail.trim() || signInLoading}>
+                  {signInLoading ? 'Sending…' : 'Send code'}
+                </button>
+              ) : (
+                <button className="btn btn-amber" onClick={handleVerifyCode} disabled={signInCode.length < 6 || signInLoading}>
+                  {signInLoading ? 'Verifying…' : 'Sign in'}
+                </button>
+              )}
             </div>
           </div>
         </div>

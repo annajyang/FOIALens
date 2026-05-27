@@ -30,6 +30,20 @@ function multipartFetch<T>(path: string, form: FormData, method = 'POST'): Promi
 }
 
 export const api = {
+  requestCode: (email: string) =>
+    apiFetch<{ sent: boolean }>('/auth/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }),
+
+  verifyCode: (email: string, code: string) =>
+    apiFetch<{ token: string; email: string }>('/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
+    }),
+
   listWorkspaces: () =>
     apiFetch<{ workspaces: WorkspaceListItem[] }>('/workspaces').then(r => r.workspaces),
 

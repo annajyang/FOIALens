@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv("../.env.local")
 
 from db.client import init_pool, close_pool
-from routers import workspaces, investigate, angles, runs
+from routers import workspaces, investigate, angles, runs, auth
 
 
 @asynccontextmanager
@@ -43,6 +43,22 @@ async def _migrate():
         """)
     except Exception as e:
         print(f"[migrate] GIN index skipped: {e}", flush=True)
+
+    # OTP auth tokens table for magic-link sign-in.
+    try:
+        await pool().execute("""
+            CREATE TABLE IF NOT EXISTS auth_tokens (
+                id          UUID        PRIMARY KEY,
+                email       TEXT        NOT NULL,
+                code_hash   TEXT        NOT NULL,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at  TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '10 minutes'),
+                used_at     TIMESTAMPTZ
+            );
+            CREATE INDEX IF NOT EXISTS idx_auth_tokens_email ON auth_tokens(email);
+        """)
+    except Exception as e:
+        print(f"[migrate] auth_tokens table skipped: {e}", flush=True)
 
     # OCR flag — marks chunks whose text came from vision-model transcription.
     try:
@@ -84,7 +100,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router,       prefix="/api")
 app.include_router(workspaces.router, prefix="/api")
 app.include_router(investigate.router, prefix="/api")
-app.include_router(angles.router, prefix="/api")
-app.include_router(runs.router, prefix="/api")
+app.include_router(angles.router,     prefix="/api")
+app.include_router(runs.router,       prefix="/api")
