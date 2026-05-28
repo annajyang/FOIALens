@@ -146,6 +146,24 @@ async def get_workspace(workspace_id: str, session: Session):
     }
 
 
+@router.post("/workspaces/{workspace_id}/reset-status")
+async def reset_workspace_status(workspace_id: str, session: Session):
+    token, email = session
+    try:
+        ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
+    except asyncpg.DataError:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    _check_access(ws, token, email)
+    await pool().execute(
+        "UPDATE workspaces SET status = 'active', updated_at = NOW() "
+        "WHERE id = $1 AND status = 'investigating'",
+        workspace_id,
+    )
+    return {"status": "active"}
+
+
 @router.patch("/workspaces/{workspace_id}")
 async def rename_workspace(workspace_id: str, body: RenameRequest, session: Session):
     token, email = session

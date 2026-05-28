@@ -66,6 +66,9 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
+  resetWorkspaceStatus: (workspaceId: string) =>
+    apiFetch<{ status: string }>(`/workspaces/${workspaceId}/reset-status`, { method: 'POST' }),
+
   claimWorkspace: (workspaceId: string, email: string) =>
     apiFetch<{ saved: boolean; ownerEmail: string }>(`/workspaces/${workspaceId}/claim`, {
       method: 'POST',

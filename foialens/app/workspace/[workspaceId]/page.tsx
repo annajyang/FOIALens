@@ -229,12 +229,10 @@ export default function WorkspacePage() {
     if (!workspace || running || workspace.status !== 'investigating') return;
     const id = setInterval(() => {
       api.getWorkspace(workspaceId).then(ws => {
-        if (ws.status !== 'investigating') {
-          setWorkspace(ws);
-          setAngles(ws.angles);
-        }
+        setWorkspace(ws);
+        setAngles(ws.angles);
       }).catch(() => {});
-    }, 3000);
+    }, 2000);
     return () => clearInterval(id);
   }, [workspace?.status, running]);
 
@@ -487,7 +485,15 @@ Generate ONE specific, focused investigation question a journalist should pursue
 
             {!running && workspace.status === 'investigating' && (
               <p style={{ margin: '8px 0 0', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--amber)', letterSpacing: '0.04em', lineHeight: 1.5 }}>
-                A previous run is still finishing on the server. Refresh in a moment to retry.
+                A previous run is still finishing on the server.{' '}
+                <span
+                  style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                  onClick={() => api.resetWorkspaceStatus(workspaceId).then(() =>
+                    setWorkspace(w => w ? { ...w, status: 'active' } : w)
+                  ).catch(() => {})}
+                >
+                  Force reset
+                </span>
               </p>
             )}
             {statusMsg && (
