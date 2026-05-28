@@ -31,33 +31,39 @@ async def extract_entities(
 
     context = "\n\n---\n\n".join(f"[p.{r['start_page']}] {r['content']}" for r in chunks)
 
+    _PREFILL = '{"entities": ['
     response = await call_with_backoff(
         model=HAIKU,
         max_tokens=8192,
-        response_format={"type": "json_object"},
         messages=[
             {
                 "role": "system",
-                "content": "You are a JSON API. Output only raw JSON. No prose, no markdown, no explanation.",
+                "content": (
+                    "You are a data extraction API for legal and investigative research. "
+                    "You output only raw JSON with no prose, no markdown, no explanation."
+                ),
             },
             {
                 "role": "user",
                 "content": (
-                    "Extract every named person, organization, and location from the FOIA document text below.\n"
+                    "Extract every named person, organization, and location from the document text below.\n"
                     "Focus on: named officials and staff, government agencies and departments, "
-                    "contractors and vendors, named places. Omit generic dates and dollar amounts.\n\n"
-                    'Return exactly this structure:\n'
-                    '{"entities": [\n'
-                    '  {"name": "...", "type": "person", "mentions": 3, "pageRefs": [1,4], "representativeContext": "..."}\n'
-                    ']}\n\n'
-                    'Each "type" must be one of: "person", "organization", "location".\n\n'
+                    "contractors and vendors, named places.\n\n"
+                    'Continue the JSON that has already been started. Each element:\n'
+                    '{"name": "Jane Doe", "type": "person", "mentions": 3, "pageRefs": [1,4], '
+                    '"representativeContext": "Jane Doe signed the agreement on p.4."}\n\n'
+                    'type must be one of: "person", "organization", "location".\n\n'
                     f"Document text:\n{context}"
                 ),
+            },
+            {
+                "role": "assistant",
+                "content": _PREFILL,
             },
         ],
     )
 
-    raw_text = extract_text(response)
+    raw_text = _PREFILL + extract_text(response)
     print(f"[extract_entities] raw response ({len(raw_text)} chars): {raw_text[:300]!r}", flush=True)
     parsed = parse_json(raw_text)
     # Accept {"entities": [...]} wrapper or bare list
