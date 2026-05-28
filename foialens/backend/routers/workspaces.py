@@ -13,7 +13,7 @@ from storage.spaces import presigned_url, delete_folder, delete_object
 router = APIRouter()
 
 MAX_FILES = 20
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_FILE_SIZE = 70 * 1024 * 1024  # 70 MB
 
 
 class RenameRequest(BaseModel):
