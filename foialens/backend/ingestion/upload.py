@@ -31,8 +31,8 @@ async def create_workspace_and_ingest(
     # Workspaces with an owner email don't expire.
     row = await pool().fetchrow(
         "INSERT INTO workspaces (name, status, guest_token, owner_email, expires_at) "
-        "VALUES ($1, 'ingesting', $2::uuid, $3, "
-        "        CASE WHEN $3 IS NOT NULL THEN NULL ELSE NOW() + INTERVAL '7 days' END) "
+        "VALUES ($1, 'ingesting', $2::uuid, $3::text, "
+        "        CASE WHEN $3::text IS NOT NULL THEN NULL ELSE NOW() + INTERVAL '7 days' END) "
         "RETURNING id",
         name.strip(), token_val, email_val,
     )
