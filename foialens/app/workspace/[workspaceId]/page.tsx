@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '../../../lib/api';
-import { setOwnerEmail } from '../../../lib/session';
+import { setOwnerEmail, setAuthToken } from '../../../lib/session';
 import type { WorkspaceDetail, Angle, AngleStatus, SSEEvent, TraceEntry, Document } from '../../../lib/types';
 import UploadZone from '../../../components/UploadZone';
 import ReactMarkdown from 'react-markdown';
@@ -155,10 +155,12 @@ export default function WorkspacePage() {
   const [deleting,       setDeleting]       = useState(false);
   const [deleteDocTarget, setDeleteDocTarget] = useState<{ id: string; filename: string } | null>(null);
   const [deletingDoc,    setDeletingDoc]    = useState(false);
-  const [saveOpen,    setSaveOpen]    = useState(false);
-  const [saveEmail,   setSaveEmail]   = useState('');
-  const [saving,      setSaving]      = useState(false);
-  const [saveError,   setSaveError]   = useState<string | null>(null);
+  const [saveOpen,      setSaveOpen]      = useState(false);
+  const [saveStep,      setSaveStep]      = useState<'email' | 'code'>('email');
+  const [saveEmail,     setSaveEmail]     = useState('');
+  const [saveCode,      setSaveCode]      = useState('');
+  const [saving,        setSaving]        = useState(false);
+  const [saveError,     setSaveError]     = useState<string | null>(null);
 
   const [corpusExpanded,   setCorpusExpanded]   = useState(false);
   const [extracting,       setExtracting]       = useState(false);
@@ -313,16 +315,33 @@ export default function WorkspacePage() {
     if (status === 'dismissed' && selectedId === angleId) setSelectedId(null);
   }
 
-  async function doSave() {
-    if (!saveEmail.trim() || saving) return;
+  async function doSaveRequestCode() {
+    const email = saveEmail.trim().toLowerCase();
+    if (!email || !email.includes('@') || saving) return;
     setSaving(true); setSaveError(null);
     try {
-      await api.claimWorkspace(workspaceId, saveEmail.trim());
-      setOwnerEmail(saveEmail.trim());
-      setWorkspace(w => w ? { ...w, saved: true, ownerEmail: saveEmail.trim() } : w);
+      await api.requestCode(email);
+      setSaveStep('code');
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to send code.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function doSaveVerifyCode() {
+    const email = saveEmail.trim().toLowerCase();
+    const code  = saveCode.trim();
+    if (!code || saving) return;
+    setSaving(true); setSaveError(null);
+    try {
+      const { token, email: verifiedEmail } = await api.verifyCode(email, code);
+      setAuthToken(token);
+      setOwnerEmail(verifiedEmail);
+      setWorkspace(w => w ? { ...w, saved: true, ownerEmail: verifiedEmail } : w);
       setSaveOpen(false);
     } catch (e: unknown) {
-      setSaveError(e instanceof Error ? e.message : 'Unknown error');
+      setSaveError(e instanceof Error ? e.message : 'Invalid code.');
     } finally {
       setSaving(false);
     }
@@ -457,7 +476,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
         </div>
         {workspace.saved
           ? <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--green)', letterSpacing: '0.06em' }}>✓ SAVED</span>
-          : <button className="btn btn-amber" onClick={() => setSaveOpen(true)}>Save workspace</button>
+          : <button className="btn btn-amber" onClick={() => { setSaveStep('email'); setSaveEmail(''); setSaveCode(''); setSaveError(null); setSaveOpen(true); }}>Save workspace</button>
         }
         <button className="btn btn-amber" onClick={() => setAddDocsOpen(true)} disabled={busy}>＋ Add docs</button>
         <button className="btn btn-danger" onClick={() => setDeleteOpen(true)} disabled={busy}>Delete</button>
@@ -722,25 +741,50 @@ Generate ONE specific, focused investigation question a journalist should pursue
               <button className="btn btn-sm" onClick={() => { setSaveOpen(false); setSaveError(null); }}>Close</button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
-                Enter your email to save this workspace permanently. You can recover it on any device by signing in with the same email.
-              </p>
-              <input
-                type="email"
-                placeholder="you@example.com"
-                value={saveEmail}
-                onChange={e => setSaveEmail(e.target.value)}
-                onKeyDown={async e => { if (e.key === 'Enter') await doSave(); }}
-                autoFocus
-                style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--sans)', fontSize: 13, outline: 'none' }}
-              />
+              {saveStep === 'email' ? (
+                <>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
+                    Enter your email to save this workspace permanently. You can recover it on any device by signing in with the same email.
+                  </p>
+                  <input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={saveEmail}
+                    onChange={e => setSaveEmail(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') doSaveRequestCode(); }}
+                    autoFocus
+                    style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--sans)', fontSize: 13, outline: 'none' }}
+                  />
+                </>
+              ) : (
+                <>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--fg-dim)' }}>
+                    Enter the code sent to <b>{saveEmail}</b>.
+                  </p>
+                  <input
+                    type="text"
+                    placeholder="6-digit code"
+                    value={saveCode}
+                    onChange={e => setSaveCode(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') doSaveVerifyCode(); }}
+                    autoFocus
+                    style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--mono)', fontSize: 18, letterSpacing: '0.15em', outline: 'none' }}
+                  />
+                </>
+              )}
               {saveError && <p style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--red)' }}>{saveError}</p>}
             </div>
             <div className="modal-foot">
               <button className="btn" onClick={() => { setSaveOpen(false); setSaveError(null); }}>Cancel</button>
-              <button className="btn btn-amber" onClick={doSave} disabled={!saveEmail.trim() || saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
+              {saveStep === 'email' ? (
+                <button className="btn btn-amber" onClick={doSaveRequestCode} disabled={!saveEmail.trim() || saving}>
+                  {saving ? 'Sending…' : 'Send code'}
+                </button>
+              ) : (
+                <button className="btn btn-amber" onClick={doSaveVerifyCode} disabled={!saveCode.trim() || saving}>
+                  {saving ? 'Verifying…' : 'Verify & save'}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1,8 +1,11 @@
+import asyncio
 import os
+import smtplib
 import uuid
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import Optional
 
-import httpx
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
@@ -10,6 +13,18 @@ from auth_utils import create_jwt, generate_otp, verify_otp
 from db.client import pool
 
 router = APIRouter()
+
+
+def _send_gmail(gmail_user: str, gmail_password: str, to: str, code: str, html: str) -> None:
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Your FOIALens sign-in code"
+    msg["From"] = f"FOIALens <{gmail_user}>"
+    msg["To"] = to
+    msg.attach(MIMEText(html, "html"))
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(gmail_user, gmail_password)
+        server.sendmail(gmail_user, to, msg.as_string())
 
 
 class RequestBody(BaseModel):
@@ -38,31 +53,22 @@ async def request_code(body: RequestBody):
         token_id, email, code_hash,
     )
 
-    api_key = os.environ.get("RESEND_API_KEY")
-    if not api_key:
+    gmail_user = os.environ.get("GMAIL_USER")
+    gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
+    if not gmail_user or not gmail_password:
         # Dev fallback: print code to server stdout
         print(f"[auth] DEV — OTP for {email}: {code}", flush=True)
     else:
-        from_addr = os.environ.get("AUTH_FROM_EMAIL", "FOIALens <noreply@resend.dev>")
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "from": from_addr,
-                    "to": [email],
-                    "subject": "Your FOIALens sign-in code",
-                    "html": (
-                        "<p style='font-family:sans-serif'>Your FOIALens sign-in code is:</p>"
-                        f"<h1 style='letter-spacing:0.15em;font-family:monospace;font-size:40px'>{code}</h1>"
-                        "<p style='font-family:sans-serif;color:#666'>Expires in 10 minutes · one-time use</p>"
-                    ),
-                },
-                timeout=10,
-            )
-            if resp.status_code >= 400:
-                print(f"[auth] Resend error {resp.status_code}: {resp.text}", flush=True)
-                raise HTTPException(status_code=502, detail="Failed to send verification email.")
+        html = (
+            "<p style='font-family:sans-serif'>Your FOIALens sign-in code is:</p>"
+            f"<h1 style='letter-spacing:0.15em;font-family:monospace;font-size:40px'>{code}</h1>"
+            "<p style='font-family:sans-serif;color:#666'>Expires in 10 minutes · one-time use</p>"
+        )
+        try:
+            await asyncio.to_thread(_send_gmail, gmail_user, gmail_password, email, code, html)
+        except Exception as exc:
+            print(f"[auth] Gmail error: {exc}", flush=True)
+            raise HTTPException(status_code=502, detail="Failed to send verification email.")
 
     return {"sent": True}
 
