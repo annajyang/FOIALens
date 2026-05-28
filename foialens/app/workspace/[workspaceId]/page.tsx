@@ -467,10 +467,15 @@ Generate ONE specific, focused investigation question a journalist should pursue
               </div>
             )}
 
-            <button className="investigate-btn" disabled={running || workspace.status === 'ingesting'} onClick={requestInvestigate}>
+            <button className="investigate-btn" disabled={running || workspace.status === 'ingesting' || workspace.status === 'investigating'} onClick={requestInvestigate}>
               {running ? <>● STREAMING…</> : <>▶ INVESTIGATE</>}
             </button>
 
+            {!running && workspace.status === 'investigating' && (
+              <p style={{ margin: '8px 0 0', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--amber)', letterSpacing: '0.04em', lineHeight: 1.5 }}>
+                A previous run is still finishing on the server. Refresh in a moment to retry.
+              </p>
+            )}
             {statusMsg && (
               <p style={{ margin: '8px 0 0', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--amber)', letterSpacing: '0.04em' }}>
                 {statusMsg}

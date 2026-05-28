@@ -56,11 +56,13 @@ async def build_timeline(workspace_id: str, entity_names: list[str] | None = Non
     )
 
     raw_text = extract_text(response)
+    print(f"[build_timeline] raw response ({len(raw_text)} chars): {raw_text[:400]!r}", flush=True)
     parsed = parse_json(raw_text)
     if not isinstance(parsed, list):
         print(f"[build_timeline] parse_json failed; raw={raw_text[:300]!r}", flush=True)
         return {"events": []}
 
+    print(f"[build_timeline] parsed {len(parsed)} items, {sum(1 for e in parsed if _is_valid(e))} valid", flush=True)
     events = [e for e in parsed if _is_valid(e)]
     events.sort(key=_sort_key)
     return {"events": events}

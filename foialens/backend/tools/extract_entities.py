@@ -58,11 +58,13 @@ async def extract_entities(
     )
 
     raw_text = extract_text(response)
+    print(f"[extract_entities] raw response ({len(raw_text)} chars): {raw_text[:400]!r}", flush=True)
     parsed = parse_json(raw_text)
     if not isinstance(parsed, list):
         print(f"[extract_entities] parse_json failed; raw={raw_text[:300]!r}", flush=True)
         return {"entities": [], "newCount": 0}
 
+    print(f"[extract_entities] parsed {len(parsed)} items, {sum(1 for e in parsed if _is_valid(e))} valid", flush=True)
     entities = [e for e in parsed if _is_valid(e)]
     new_count = sum(1 for e in entities if e["name"].lower() not in known_names)
 

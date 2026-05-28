@@ -157,6 +157,9 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                 result = await dispatch_tool(name, input_data,
                                              params.workspace_id, params.run_id, known_entity_names)
 
+                if name in ("extract_entities", "build_timeline"):
+                    print(f"[tool:{name}] result={json.dumps(result)[:600]}", flush=True)
+
                 if name == "extract_entities":
                     extracted = result.get("entities", [])
                     for e in extracted:
