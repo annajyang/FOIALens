@@ -30,34 +30,36 @@ async def build_timeline(workspace_id: str, entity_names: list[str] | None = Non
     response = await call_with_backoff(
         model=HAIKU,
         max_tokens=8192,
+        response_format={"type": "json_object"},
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You are a precise information extraction system. "
-                    "Return ONLY valid JSON with no prose, preamble, or markdown fences."
-                ),
+                "content": "You are a JSON API. Output only raw JSON. No prose, no markdown, no explanation.",
             },
             {
                 "role": "user",
                 "content": (
                     "Extract every dated event from the document text below.\n"
                     "Only include events that have a specific or approximate date attached.\n\n"
-                    "Return a JSON array where each element has exactly these fields:\n"
-                    '- "date": ISO 8601 string (e.g. "2021-03-15") or "circa YYYY" (string)\n'
-                    '- "description": what happened (string)\n'
-                    '- "significance": why this event matters to an investigation (string)\n'
-                    '- "pageRefs": page numbers where this event appears (number[])\n'
-                    '- "confidence": "high" if date is explicit, "medium" if inferred, "low" if approximate\n\n'
-                    f"Document text:\n{context}\n\nReturn ONLY the JSON array."
+                    'Return exactly this structure:\n'
+                    '{"events": [\n'
+                    '  {"date": "2021-03-15", "description": "...", "significance": "...", '
+                    '"pageRefs": [1], "confidence": "high"}\n'
+                    ']}\n\n'
+                    '"date" is ISO 8601 or "circa YYYY". '
+                    '"confidence" is "high" (explicit date), "medium" (inferred), or "low" (approximate).\n\n'
+                    f"Document text:\n{context}"
                 ),
             },
         ],
     )
 
     raw_text = extract_text(response)
-    print(f"[build_timeline] raw response ({len(raw_text)} chars): {raw_text!r}", flush=True)
+    print(f"[build_timeline] raw response ({len(raw_text)} chars): {raw_text[:300]!r}", flush=True)
     parsed = parse_json(raw_text)
+    # Accept {"events": [...]} wrapper or bare list
+    if isinstance(parsed, dict):
+        parsed = parsed.get("events", parsed.get("event", []))
     if not isinstance(parsed, list):
         print(f"[build_timeline] parse_json failed; raw={raw_text[:300]!r}", flush=True)
         return {"events": []}

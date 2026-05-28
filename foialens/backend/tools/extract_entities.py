@@ -34,35 +34,35 @@ async def extract_entities(
     response = await call_with_backoff(
         model=HAIKU,
         max_tokens=8192,
+        response_format={"type": "json_object"},
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You are a precise information extraction system. "
-                    "Return ONLY valid JSON with no prose, preamble, or markdown fences."
-                ),
+                "content": "You are a JSON API. Output only raw JSON. No prose, no markdown, no explanation.",
             },
             {
                 "role": "user",
                 "content": (
-                    "Extract every named person, organization, and location from the FOIA document text below.\n\n"
+                    "Extract every named person, organization, and location from the FOIA document text below.\n"
                     "Focus on: named officials and staff, government agencies and departments, "
-                    "contractors and vendors, and named places. Omit generic dates and dollar amounts.\n\n"
-                    "Return a JSON array where each element has exactly these fields:\n"
-                    '- "name": entity name as it appears in the document (string)\n'
-                    '- "type": one of "person" | "organization" | "location"\n'
-                    '- "mentions": approximate count of times mentioned (number)\n'
-                    '- "pageRefs": page numbers where found (number[])\n'
-                    '- "representativeContext": one sentence showing the entity in context (string)\n\n'
-                    f"Document text:\n{context}\n\nReturn ONLY the JSON array."
+                    "contractors and vendors, named places. Omit generic dates and dollar amounts.\n\n"
+                    'Return exactly this structure:\n'
+                    '{"entities": [\n'
+                    '  {"name": "...", "type": "person", "mentions": 3, "pageRefs": [1,4], "representativeContext": "..."}\n'
+                    ']}\n\n'
+                    'Each "type" must be one of: "person", "organization", "location".\n\n'
+                    f"Document text:\n{context}"
                 ),
             },
         ],
     )
 
     raw_text = extract_text(response)
-    print(f"[extract_entities] raw response ({len(raw_text)} chars): {raw_text!r}", flush=True)
+    print(f"[extract_entities] raw response ({len(raw_text)} chars): {raw_text[:300]!r}", flush=True)
     parsed = parse_json(raw_text)
+    # Accept {"entities": [...]} wrapper or bare list
+    if isinstance(parsed, dict):
+        parsed = parsed.get("entities", parsed.get("entity", []))
     if not isinstance(parsed, list):
         print(f"[extract_entities] parse_json failed; raw={raw_text[:300]!r}", flush=True)
         return {"entities": [], "newCount": 0}
