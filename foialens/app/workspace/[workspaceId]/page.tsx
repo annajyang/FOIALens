@@ -1698,7 +1698,12 @@ function ChatWindow({ angle, messages, onAppend, onUpdateStreaming, onFinishStre
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (!scrollRef.current) return;
+    if (messages.length <= 2) {
+      scrollRef.current.scrollTop = 0;
+    } else {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [messages.length, messages[messages.length - 1]?.content]);
 
   useEffect(() => {
