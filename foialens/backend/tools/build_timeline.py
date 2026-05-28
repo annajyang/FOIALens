@@ -70,7 +70,6 @@ async def build_timeline(workspace_id: str, entity_names: list[str] | None = Non
 
 async def _gather_chunks(workspace_id: str, entity_names: list[str]) -> list[dict]:
     queries = list(_BASE_QUERIES)
-    # Add entity-specific date queries for the top entities already identified.
     for name in entity_names[:5]:
         queries.append(f"{name} date signed approved awarded")
 
@@ -80,11 +79,15 @@ async def _gather_chunks(workspace_id: str, entity_names: list[str]) -> list[dic
 
     seen: set[str] = set()
     chunks: list[dict] = []
-    for result in results:
-        for r in result["results"]:
+    for q, result in zip(queries, results):
+        hits = result.get("results", [])
+        print(f"[build_timeline] query={q!r:.50} → {len(hits)} hits", flush=True)
+        for r in hits:
             if r["chunkId"] not in seen:
                 seen.add(r["chunkId"])
                 chunks.append(r)
+
+    print(f"[build_timeline] total unique chunks: {len(chunks)}", flush=True)
     return chunks
 
 

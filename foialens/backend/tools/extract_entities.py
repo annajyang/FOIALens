@@ -73,27 +73,29 @@ async def extract_entities(
 
 async def _fetch_chunks(scope: str, workspace_id: str) -> list:
     if scope != "full":
-        # Single-document extraction — fetch in order
-        return await pool().fetch(
+        rows = await pool().fetch(
             "SELECT content, start_page FROM chunks "
             "WHERE workspace_id = $1 AND document_id = $2 ORDER BY chunk_index LIMIT $3",
             workspace_id, scope, MAX_CHUNKS,
         )
+        print(f"[extract_entities] single-doc fetch: {len(rows)} chunks", flush=True)
+        return rows
 
-    # Full-corpus extraction: use targeted semantic searches to find entity-rich
-    # chunks instead of reading the first N chunks in document order.
     results = await asyncio.gather(
         *[search_documents(q, workspace_id, limit=12) for q in _ENTITY_QUERIES]
     )
 
     seen: set[str] = set()
     chunks: list[dict] = []
-    for result in results:
-        for r in result["results"]:
+    for q, result in zip(_ENTITY_QUERIES, results):
+        hits = result.get("results", [])
+        print(f"[extract_entities] query={q!r:.50} → {len(hits)} hits", flush=True)
+        for r in hits:
             if r["chunkId"] not in seen:
                 seen.add(r["chunkId"])
                 chunks.append({"start_page": r["startPage"], "content": r["content"]})
 
+    print(f"[extract_entities] total unique chunks: {len(chunks)}", flush=True)
     return chunks[:MAX_CHUNKS]
 
 
