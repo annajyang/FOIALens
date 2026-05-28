@@ -5,7 +5,7 @@ from .haiku_utils import HAIKU, call_with_backoff, extract_text, parse_json
 from .search_documents import search_documents
 
 MAX_CHUNKS = 50
-VALID_TYPES = {"person", "organization", "date", "amount", "location"}
+VALID_TYPES = {"person", "organization", "location"}
 
 # Queries designed to surface entity-dense chunks across different entity types.
 _ENTITY_QUERIES = [
