@@ -406,7 +406,7 @@ def _validate_files(files: list[UploadFile]) -> None:
         raise HTTPException(status_code=400, detail=f"Maximum {MAX_FILES} files per upload.")
     for f in files:
         if f.size and f.size > MAX_FILE_SIZE:
-            raise HTTPException(status_code=400, detail=f"{f.filename} exceeds the 50 MB limit.")
+            raise HTTPException(status_code=400, detail=f"{f.filename} exceeds the 70 MB limit.")
         if not (f.filename or "").lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail=f"{f.filename} is not a PDF.")
 
