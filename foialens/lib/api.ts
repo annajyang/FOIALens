@@ -104,4 +104,10 @@ export const api = {
 
   getDocumentUrl: (docId: string) =>
     apiFetch<{ url: string }>(`/documents/${docId}/url`),
+
+  extractEntities: (workspaceId: string) =>
+    apiFetch<{ entities: WorkspaceDetail['entities'] }>(`/workspaces/${workspaceId}/extract-entities`, { method: 'POST' }),
+
+  buildTimeline: (workspaceId: string) =>
+    apiFetch<{ events: WorkspaceDetail['timeline'] }>(`/workspaces/${workspaceId}/build-timeline`, { method: 'POST' }),
 };

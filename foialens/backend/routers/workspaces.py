@@ -307,6 +307,69 @@ async def delete_document(doc_id: str, session: Session):
     await pool().execute("DELETE FROM documents WHERE id = $1", doc_id)
 
 
+@router.post("/workspaces/{workspace_id}/extract-entities")
+async def run_extract_entities(workspace_id: str, session: Session):
+    token, email = session
+    try:
+        ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
+    except asyncpg.DataError:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    _check_access(ws, token, email)
+    if ws["status"] == "investigating":
+        raise HTTPException(status_code=409, detail="Cannot run while an investigation is in progress.")
+
+    from tools.extract_entities import extract_entities as _extract
+    result = await _extract("full", workspace_id)
+    new_entities = result.get("entities", [])
+
+    current = list(ws["entities"] or [])
+    existing_names = {e["name"].lower() for e in current}
+    for e in new_entities:
+        if e["name"].lower() not in existing_names:
+            existing_names.add(e["name"].lower())
+            current.append(e)
+
+    await pool().execute(
+        "UPDATE workspaces SET entities = $1::jsonb, updated_at = NOW() WHERE id = $2",
+        current, workspace_id,
+    )
+    return {"entities": current}
+
+
+@router.post("/workspaces/{workspace_id}/build-timeline")
+async def run_build_timeline(workspace_id: str, session: Session):
+    token, email = session
+    try:
+        ws = await pool().fetchrow("SELECT * FROM workspaces WHERE id = $1", workspace_id)
+    except asyncpg.DataError:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    _check_access(ws, token, email)
+    if ws["status"] == "investigating":
+        raise HTTPException(status_code=409, detail="Cannot run while an investigation is in progress.")
+
+    from tools.build_timeline import build_timeline as _build_timeline
+    result = await _build_timeline(workspace_id)
+    new_events = result.get("events", [])
+
+    current = list(ws["timeline"] or [])
+    seen_keys = {f"{e['date']}|{e['description'][:80]}" for e in current}
+    for e in new_events:
+        key = f"{e['date']}|{e['description'][:80]}"
+        if key not in seen_keys:
+            seen_keys.add(key)
+            current.append(e)
+
+    await pool().execute(
+        "UPDATE workspaces SET timeline = $1::jsonb, updated_at = NOW() WHERE id = $2",
+        current, workspace_id,
+    )
+    return {"events": current}
+
+
 @router.get("/documents/{doc_id}/url")
 async def get_document_url(doc_id: str):
     try:

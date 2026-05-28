@@ -7,12 +7,27 @@ from ingestion.embedder import embed_texts, to_vector_string
 _RRF_K = 60
 
 
+_logged_workspaces: set[str] = set()
+
+
 async def search_documents(query: str, workspace_id: str, limit: int = 10) -> dict:
     limit = min(limit, 20)
     vec = to_vector_string((await embed_texts([query]))[0])
 
+    # One-time diagnostic per workspace: compare chunk count with and without doc join.
+    if workspace_id not in _logged_workspaces:
+        _logged_workspaces.add(workspace_id)
+        raw, joined = await asyncio.gather(
+            pool().fetchval("SELECT count(*)::int FROM chunks WHERE workspace_id = $1", workspace_id),
+            pool().fetchval(
+                "SELECT count(*)::int FROM chunks c JOIN documents d ON d.id::text = c.document_id::text WHERE c.workspace_id = $1",
+                workspace_id,
+            ),
+        )
+        print(f"[search_documents] workspace={workspace_id} chunks={raw} chunks_with_doc_join={joined}", flush=True)
+
     # Run semantic (vector) and keyword (full-text) searches in parallel.
-    # Keyword search uses the GIN index on to_tsvector('english', content).
+    # LEFT JOIN so chunks are returned even if parent document row is missing.
     sem_rows, kw_rows = await asyncio.gather(
         pool().fetch(
             """
@@ -20,7 +35,7 @@ async def search_documents(query: str, workspace_id: str, limit: int = 10) -> di
                    d.filename AS document_name,
                    1 - (c.embedding <=> $1::vector) AS similarity
             FROM chunks c
-            JOIN documents d ON d.id = c.document_id
+            LEFT JOIN documents d ON d.id = c.document_id
             WHERE c.workspace_id = $2
             ORDER BY c.embedding <=> $1::vector
             LIMIT $3
@@ -32,7 +47,7 @@ async def search_documents(query: str, workspace_id: str, limit: int = 10) -> di
             SELECT c.id::text AS chunk_id, c.content, c.start_page, c.end_page,
                    d.filename AS document_name
             FROM chunks c
-            JOIN documents d ON d.id = c.document_id
+            LEFT JOIN documents d ON d.id = c.document_id
             WHERE c.workspace_id = $1
               AND to_tsvector('english', c.content) @@ plainto_tsquery('english', $2)
             ORDER BY ts_rank(to_tsvector('english', c.content),
@@ -50,8 +65,8 @@ async def search_documents(query: str, workspace_id: str, limit: int = 10) -> di
             "content":       r["content"],
             "start_page":    r["start_page"],
             "end_page":      r["end_page"],
-            "document_name": r["document_name"],
-            "similarity":    float(r["similarity"]),
+            "document_name": r["document_name"] or "",
+            "similarity":    float(r["similarity"]) if r["similarity"] is not None else 0.0,
         }
     for r in kw_rows:
         if r["chunk_id"] not in chunks:
@@ -59,8 +74,8 @@ async def search_documents(query: str, workspace_id: str, limit: int = 10) -> di
                 "content":       r["content"],
                 "start_page":    r["start_page"],
                 "end_page":      r["end_page"],
-                "document_name": r["document_name"],
-                "similarity":    0.0,  # no vector score for keyword-only hits
+                "document_name": r["document_name"] or "",
+                "similarity":    0.0,
             }
 
     # RRF: score = 1/(K + rank_semantic) + 1/(K + rank_keyword)

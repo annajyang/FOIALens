@@ -160,6 +160,11 @@ export default function WorkspacePage() {
   const [saving,      setSaving]      = useState(false);
   const [saveError,   setSaveError]   = useState<string | null>(null);
 
+  const [extracting,       setExtracting]       = useState(false);
+  const [extractError,     setExtractError]     = useState<string | null>(null);
+  const [buildingTimeline, setBuildingTimeline] = useState(false);
+  const [timelineError,    setTimelineError]    = useState<string | null>(null);
+
   // Doc viewer
   const [viewer, setViewer] = useState<{ open: boolean; doc: string | null; pages: number[]; focus: number }>({ open: false, doc: null, pages: [], focus: 1 });
   const openViewer = useCallback((docName: string, pages: number[], focus?: number) => {
@@ -372,6 +377,32 @@ Generate ONE specific, focused investigation question a journalist should pursue
     }
   }
 
+  async function handleExtractEntities() {
+    if (extracting || running) return;
+    setExtracting(true); setExtractError(null);
+    try {
+      const { entities } = await api.extractEntities(workspaceId);
+      setWorkspace(w => w ? { ...w, entities } : w);
+    } catch (e: unknown) {
+      setExtractError(e instanceof Error ? e.message : 'Extraction failed');
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  async function handleBuildTimeline() {
+    if (buildingTimeline || running) return;
+    setBuildingTimeline(true); setTimelineError(null);
+    try {
+      const { events } = await api.buildTimeline(workspaceId);
+      setWorkspace(w => w ? { ...w, timeline: events } : w);
+    } catch (e: unknown) {
+      setTimelineError(e instanceof Error ? e.message : 'Timeline build failed');
+    } finally {
+      setBuildingTimeline(false);
+    }
+  }
+
   if (loadError) return (
     <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)', fontFamily: 'var(--mono)', fontSize: 11 }}>
       {loadError}
@@ -567,6 +598,30 @@ Generate ONE specific, focused investigation question a journalist should pursue
                 </button>
                 <button className={`tab new-tab ${tab === 'new' ? 'active' : ''}`} onClick={() => setTab('new')}>
                   New <span className="pill">{newAngles.length}</span>
+                </button>
+              </div>
+            )}
+            {tool === 'entities' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {extractError && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--red)' }}>{extractError}</span>}
+                <button
+                  className="btn btn-amber"
+                  onClick={handleExtractEntities}
+                  disabled={extracting || running || workspace.status === 'investigating'}
+                >
+                  {extracting ? '● Extracting…' : '▶ Extract entities'}
+                </button>
+              </div>
+            )}
+            {tool === 'timeline' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {timelineError && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--red)' }}>{timelineError}</span>}
+                <button
+                  className="btn btn-amber"
+                  onClick={handleBuildTimeline}
+                  disabled={buildingTimeline || running || workspace.status === 'investigating'}
+                >
+                  {buildingTimeline ? '● Building…' : '▶ Build timeline'}
                 </button>
               </div>
             )}
@@ -1153,7 +1208,7 @@ function Inspector({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCoun
 function EntitiesPane({ entities }: { entities: WorkspaceDetail['entities'] }) {
   if (entities.length === 0) return (
     <div style={{ padding: '40px 24px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--fg-mute)', letterSpacing: '0.06em' }}>
-      No entities extracted yet. Run an investigation first.
+      No entities extracted yet. Use ▶ Extract entities above or run an investigation.
     </div>
   );
   return (
@@ -1185,7 +1240,7 @@ function EntitiesPane({ entities }: { entities: WorkspaceDetail['entities'] }) {
 function TimelinePane({ events, onOpenDoc }: { events: WorkspaceDetail['timeline']; onOpenDoc: (pages: number[]) => void }) {
   if (events.length === 0) return (
     <div style={{ padding: '40px 24px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--fg-mute)', letterSpacing: '0.06em' }}>
-      No timeline events yet. Run an investigation first.
+      No timeline events yet. Use ▶ Build timeline above or run an investigation.
     </div>
   );
   return (
