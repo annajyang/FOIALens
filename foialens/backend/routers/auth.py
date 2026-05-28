@@ -61,6 +61,7 @@ async def request_code(body: RequestBody):
                 timeout=10,
             )
             if resp.status_code >= 400:
+                print(f"[auth] Resend error {resp.status_code}: {resp.text}", flush=True)
                 raise HTTPException(status_code=502, detail="Failed to send verification email.")
 
     return {"sent": True}
