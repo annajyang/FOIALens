@@ -148,20 +148,31 @@ export default function Home() {
               <button className="btn btn-sm" onClick={closeModal}>Close</button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <input
-                type="text"
-                placeholder="Workspace name — e.g. City Hall Contracts 2019–2023"
-                value={wsName}
-                onChange={e => setWsName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                autoFocus
-                style={{
-                  width: '100%', padding: '8px 10px',
-                  background: 'var(--bg-2)', border: '1px solid var(--border-strong)',
-                  color: 'var(--fg)', fontFamily: 'var(--sans)', fontSize: 13,
-                  outline: 'none',
-                }}
-              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--fg-dim)', textTransform: 'uppercase' }}>
+                  Workspace name <span style={{ color: 'var(--red)' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. City Hall Contracts 2019–2023"
+                  value={wsName}
+                  onChange={e => setWsName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                  autoFocus
+                  style={{
+                    width: '100%', padding: '8px 10px',
+                    background: 'var(--bg-2)',
+                    border: `1px solid ${!wsName.trim() && files.length > 0 ? 'var(--red)' : 'var(--border-strong)'}`,
+                    color: 'var(--fg)', fontFamily: 'var(--sans)', fontSize: 13,
+                    outline: 'none',
+                  }}
+                />
+                {!wsName.trim() && files.length > 0 && (
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--red)', letterSpacing: '0.04em' }}>
+                    Name is required before ingesting.
+                  </span>
+                )}
+              </div>
               <UploadZone files={files} onChange={setFiles} />
               {createError && (
                 <p style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--red)' }}>
