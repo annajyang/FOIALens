@@ -40,20 +40,20 @@ function deriveFollowUps(angle: Angle): string[] {
     contradiction: [
       'What is the official explanation for this discrepancy?',
       'Are there other documents in the corpus that corroborate or contradict this?',
-      'Request original records — not copies — via supplementary FOIA.',
+      'What leads should be pursued based off this evidence?',
     ],
     omission: [
       'Who is responsible for the missing step and what is the standard process?',
       'Are there other gaps in this document trail?',
-      'Request the missing records via supplementary FOIA.',
+      'Who would have direct knowledge and could be interviewed?',
     ],
     relationship: [
       'Cross-reference these parties in state business and corporate registries.',
-      'Request disclosure forms for all overlapping officials.',
+      'Who would have direct knowledge and could be interviewed?',
       'Are there other contracts involving these same parties?',
     ],
     other: [
-      'What additional documents would confirm or refute this angle?',
+      'What leads should be pursued based off this evidence?',
       'Who would have direct knowledge and could be interviewed?',
       'Are there other gaps in this document trail?',
     ],
@@ -160,6 +160,7 @@ export default function WorkspacePage() {
   const [saving,      setSaving]      = useState(false);
   const [saveError,   setSaveError]   = useState<string | null>(null);
 
+  const [corpusExpanded,   setCorpusExpanded]   = useState(false);
   const [extracting,       setExtracting]       = useState(false);
   const [extractError,     setExtractError]     = useState<string | null>(null);
   const [buildingTimeline, setBuildingTimeline] = useState(false);
@@ -543,7 +544,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
           <div className="side-section">
             <h2 className="side-h">Corpus <span className="count">{workspace.documents.length} DOCS</span></h2>
             <div className="corpus-list">
-              {workspace.documents.map(d => (
+              {(corpusExpanded ? workspace.documents : workspace.documents.slice(0, 5)).map(d => (
                 <div className="corpus-item corpus-item-row" key={d.id} title={d.filename}>
                   <div
                     className="corpus-item-main doc-link"
@@ -561,6 +562,13 @@ Generate ONE specific, focused investigation question a journalist should pursue
                   >×</button>
                 </div>
               ))}
+              {workspace.documents.length > 5 && (
+                <button className="corpus-item" onClick={() => setCorpusExpanded(e => !e)} style={{ color: 'var(--fg-mute)' }}>
+                  <span className="corpus-name" style={{ color: 'var(--fg-mute)' }}>
+                    {corpusExpanded ? '▲ Show less' : `▼ +${workspace.documents.length - 5} more`}
+                  </span>
+                </button>
+              )}
               <button className="corpus-item" onClick={() => setAddDocsOpen(true)} style={{ color: 'var(--amber)' }}>
                 <span style={{ width: 6, color: 'var(--amber)', fontFamily: 'var(--mono)' }}>＋</span>
                 <span className="corpus-name" style={{ color: 'var(--amber)' }}>Add documents</span>
