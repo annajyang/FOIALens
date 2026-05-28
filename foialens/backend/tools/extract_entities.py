@@ -31,44 +31,61 @@ async def extract_entities(
 
     context = "\n\n---\n\n".join(f"[p.{r['start_page']}] {r['content']}" for r in chunks)
 
-    _PREFILL = '{"entities": ['
+    _SCHEMA = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "entity_extraction",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "entities": {
+                        "type": "array",
+                        "description": "Named persons, organizations, and locations found in the document.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name":                  {"type": "string", "description": "Entity name as it appears in the document"},
+                                "type":                  {"type": "string", "enum": ["person", "organization", "location"]},
+                                "mentions":              {"type": "number", "description": "Approximate number of times mentioned"},
+                                "pageRefs":              {"type": "array", "items": {"type": "number"}, "description": "Page numbers where the entity appears"},
+                                "representativeContext": {"type": "string", "description": "One sentence showing the entity in context"},
+                            },
+                            "required": ["name", "type", "mentions", "pageRefs", "representativeContext"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["entities"],
+                "additionalProperties": False,
+            },
+        },
+    }
     response = await call_with_backoff(
         model=HAIKU,
         max_tokens=8192,
+        response_format=_SCHEMA,
         messages=[
             {
                 "role": "system",
                 "content": (
                     "You are a data extraction API for legal and investigative research. "
-                    "You output only raw JSON with no prose, no markdown, no explanation."
+                    "Extract named persons, organizations, and locations. "
+                    "Focus on named officials and staff, government agencies, contractors, vendors, and named places."
                 ),
             },
             {
                 "role": "user",
-                "content": (
-                    "Extract every named person, organization, and location from the document text below.\n"
-                    "Focus on: named officials and staff, government agencies and departments, "
-                    "contractors and vendors, named places.\n\n"
-                    'Continue the JSON that has already been started. Each element:\n'
-                    '{"name": "Jane Doe", "type": "person", "mentions": 3, "pageRefs": [1,4], '
-                    '"representativeContext": "Jane Doe signed the agreement on p.4."}\n\n'
-                    'type must be one of: "person", "organization", "location".\n\n'
-                    f"Document text:\n{context}"
-                ),
-            },
-            {
-                "role": "assistant",
-                "content": _PREFILL,
+                "content": f"Document text:\n{context}",
             },
         ],
     )
 
-    raw_text = _PREFILL + extract_text(response)
+    raw_text = extract_text(response)
     print(f"[extract_entities] raw response ({len(raw_text)} chars): {raw_text[:300]!r}", flush=True)
     parsed = parse_json(raw_text)
-    # Accept {"entities": [...]} wrapper or bare list
     if isinstance(parsed, dict):
-        parsed = parsed.get("entities", parsed.get("entity", []))
+        parsed = parsed.get("entities", [])
     if not isinstance(parsed, list):
         print(f"[extract_entities] parse_json failed; raw={raw_text[:300]!r}", flush=True)
         return {"entities": [], "newCount": 0}

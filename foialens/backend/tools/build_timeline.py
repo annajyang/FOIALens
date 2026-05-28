@@ -27,44 +27,61 @@ async def build_timeline(workspace_id: str, entity_names: list[str] | None = Non
 
     context = "\n\n---\n\n".join(f"[p.{c['startPage']}] {c['content']}" for c in chunks)
 
-    _PREFILL = '{"events": ['
+    _SCHEMA = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "timeline_extraction",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "description": "Dated events found in the document, oldest first.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "date":         {"type": "string", "description": "ISO 8601 date (e.g. 2021-03-15) or 'circa YYYY'"},
+                                "description":  {"type": "string", "description": "What happened"},
+                                "significance": {"type": "string", "description": "Why this event matters to an investigation"},
+                                "pageRefs":     {"type": "array", "items": {"type": "number"}, "description": "Page numbers where this event appears"},
+                                "confidence":   {"type": "string", "enum": ["high", "medium", "low"], "description": "high=explicit date, medium=inferred, low=approximate"},
+                            },
+                            "required": ["date", "description", "significance", "pageRefs", "confidence"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["events"],
+                "additionalProperties": False,
+            },
+        },
+    }
     response = await call_with_backoff(
         model=HAIKU,
         max_tokens=8192,
+        response_format=_SCHEMA,
         messages=[
             {
                 "role": "system",
                 "content": (
                     "You are a data extraction API for legal and investigative research. "
-                    "You output only raw JSON with no prose, no markdown, no explanation."
+                    "Extract every dated event from the document. "
+                    "Only include events that have a specific or approximate date attached."
                 ),
             },
             {
                 "role": "user",
-                "content": (
-                    "Extract every dated event from the document text below.\n"
-                    "Only include events that have a specific or approximate date attached.\n\n"
-                    'Continue the JSON that has already been started. Each element:\n'
-                    '{"date": "2021-03-15", "description": "...", "significance": "...", '
-                    '"pageRefs": [1], "confidence": "high"}\n\n'
-                    '"date" is ISO 8601 or "circa YYYY". '
-                    '"confidence": "high" (explicit date), "medium" (inferred), "low" (approximate).\n\n'
-                    f"Document text:\n{context}"
-                ),
-            },
-            {
-                "role": "assistant",
-                "content": _PREFILL,
+                "content": f"Document text:\n{context}",
             },
         ],
     )
 
-    raw_text = _PREFILL + extract_text(response)
+    raw_text = extract_text(response)
     print(f"[build_timeline] raw response ({len(raw_text)} chars): {raw_text[:300]!r}", flush=True)
     parsed = parse_json(raw_text)
-    # Accept {"events": [...]} wrapper or bare list
     if isinstance(parsed, dict):
-        parsed = parsed.get("events", parsed.get("event", []))
+        parsed = parsed.get("events", [])
     if not isinstance(parsed, list):
         print(f"[build_timeline] parse_json failed; raw={raw_text[:300]!r}", flush=True)
         return {"events": []}
