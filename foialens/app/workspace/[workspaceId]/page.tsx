@@ -429,6 +429,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
   };
 
   const anglesById = Object.fromEntries(angles.map(a => [a.id, a]));
+  const busy = running || extracting || buildingTimeline;
 
   return (
     <div className="app">
@@ -454,8 +455,8 @@ Generate ONE specific, focused investigation question a journalist should pursue
           ? <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--green)', letterSpacing: '0.06em' }}>✓ SAVED</span>
           : <button className="btn btn-amber" onClick={() => setSaveOpen(true)}>Save workspace</button>
         }
-        <button className="btn btn-amber" onClick={() => setAddDocsOpen(true)} disabled={running}>＋ Add docs</button>
-        <button className="btn btn-danger" onClick={() => setDeleteOpen(true)} disabled={running}>Delete</button>
+        <button className="btn btn-amber" onClick={() => setAddDocsOpen(true)} disabled={busy}>＋ Add docs</button>
+        <button className="btn btn-danger" onClick={() => setDeleteOpen(true)} disabled={busy}>Delete</button>
       </header>
 
       {/* ── Main 3-col ── */}
@@ -510,7 +511,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
               </div>
             )}
 
-            <button className="investigate-btn" disabled={running || workspace.status === 'ingesting' || workspace.status === 'investigating'} onClick={requestInvestigate}>
+            <button className="investigate-btn" disabled={busy || workspace.status === 'ingesting' || workspace.status === 'investigating'} onClick={requestInvestigate}>
               {running ? <>● STREAMING…</> : <>▶ INVESTIGATE</>}
             </button>
 
@@ -555,7 +556,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
                   <button
                     className="corpus-delete"
                     title="Delete document"
-                    disabled={running}
+                    disabled={busy}
                     onClick={e => { e.stopPropagation(); setDeleteDocTarget({ id: d.id, filename: d.filename }); }}
                   >×</button>
                 </div>
@@ -607,7 +608,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
                 <button
                   className="btn btn-amber"
                   onClick={handleExtractEntities}
-                  disabled={extracting || running || workspace.status === 'investigating'}
+                  disabled={busy || workspace.status === 'investigating'}
                 >
                   {extracting ? '● Extracting…' : '▶ Extract entities'}
                 </button>
@@ -619,7 +620,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
                 <button
                   className="btn btn-amber"
                   onClick={handleBuildTimeline}
-                  disabled={buildingTimeline || running || workspace.status === 'investigating'}
+                  disabled={busy || workspace.status === 'investigating'}
                 >
                   {buildingTimeline ? '● Building…' : '▶ Build timeline'}
                 </button>
