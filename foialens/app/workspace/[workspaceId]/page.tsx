@@ -224,6 +224,20 @@ export default function WorkspacePage() {
       .catch(e => setLoadError(e.message));
   }, [workspaceId]);
 
+  // Poll while a previous run is finishing on the server (status stuck at 'investigating').
+  useEffect(() => {
+    if (!workspace || running || workspace.status !== 'investigating') return;
+    const id = setInterval(() => {
+      api.getWorkspace(workspaceId).then(ws => {
+        if (ws.status !== 'investigating') {
+          setWorkspace(ws);
+          setAngles(ws.angles);
+        }
+      }).catch(() => {});
+    }, 3000);
+    return () => clearInterval(id);
+  }, [workspace?.status, running]);
+
   function requestInvestigate() {
     if (!workspace || running) return;
     const cleanPrompt = mode === 'directed' ? prompt.trim() || null : null;
