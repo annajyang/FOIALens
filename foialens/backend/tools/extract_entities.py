@@ -41,15 +41,14 @@ async def extract_entities(
                 "properties": {
                     "entities": {
                         "type": "array",
-                        "description": "Named persons, organizations, and locations found in the document.",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "name":                  {"type": "string", "description": "Entity name as it appears in the document"},
+                                "name":                  {"type": "string"},
                                 "type":                  {"type": "string", "enum": ["person", "organization", "location"]},
-                                "mentions":              {"type": "number", "description": "Approximate number of times mentioned"},
-                                "pageRefs":              {"type": "array", "items": {"type": "number"}, "description": "Page numbers where the entity appears"},
-                                "representativeContext": {"type": "string", "description": "One sentence showing the entity in context"},
+                                "mentions":              {"type": "number"},
+                                "pageRefs":              {"type": "array", "items": {"type": "number"}},
+                                "representativeContext": {"type": "string"},
                             },
                             "required": ["name", "type", "mentions", "pageRefs", "representativeContext"],
                             "additionalProperties": False,

@@ -37,15 +37,14 @@ async def build_timeline(workspace_id: str, entity_names: list[str] | None = Non
                 "properties": {
                     "events": {
                         "type": "array",
-                        "description": "Dated events found in the document, oldest first.",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "date":         {"type": "string", "description": "ISO 8601 date (e.g. 2021-03-15) or 'circa YYYY'"},
-                                "description":  {"type": "string", "description": "What happened"},
-                                "significance": {"type": "string", "description": "Why this event matters to an investigation"},
-                                "pageRefs":     {"type": "array", "items": {"type": "number"}, "description": "Page numbers where this event appears"},
-                                "confidence":   {"type": "string", "enum": ["high", "medium", "low"], "description": "high=explicit date, medium=inferred, low=approximate"},
+                                "date":         {"type": "string"},
+                                "description":  {"type": "string"},
+                                "significance": {"type": "string"},
+                                "pageRefs":     {"type": "array", "items": {"type": "number"}},
+                                "confidence":   {"type": "string", "enum": ["high", "medium", "low"]},
                             },
                             "required": ["date", "description", "significance", "pageRefs", "confidence"],
                             "additionalProperties": False,
