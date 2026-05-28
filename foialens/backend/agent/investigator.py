@@ -280,11 +280,29 @@ async def _merge_into_workspace(
             merged_timeline.append({**e, "firstSeenRunId": run_id})
             new_event_count += 1
 
+    print(
+        f"[_merge_into_workspace] workspace={workspace_id} "
+        f"new_entities={len(new_entities)} merged_entities={len(merged_entities)} "
+        f"new_events={len(new_events)} merged_timeline={len(merged_timeline)}",
+        flush=True,
+    )
+
     await pool().execute(
         "UPDATE workspaces SET entities = $1::jsonb, timeline = $2::jsonb, updated_at = NOW() WHERE id = $3",
         merged_entities,
         merged_timeline,
         workspace_id,
+    )
+
+    # Verify the write landed.
+    saved = await pool().fetchrow(
+        "SELECT jsonb_array_length(entities) AS ec, jsonb_array_length(timeline) AS tc "
+        "FROM workspaces WHERE id = $1",
+        workspace_id,
+    )
+    print(
+        f"[_merge_into_workspace] post-save db entities={saved['ec']} timeline={saved['tc']}",
+        flush=True,
     )
 
     return new_entity_count, new_event_count
