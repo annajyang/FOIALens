@@ -9,7 +9,7 @@ import UploadZone from '../../../components/UploadZone';
 import ReactMarkdown from 'react-markdown';
 
 type Tool = 'angles' | 'entities' | 'timeline' | 'trace';
-type Tab  = 'pinned' | 'all' | 'new';
+type Tab  = 'pinned' | 'all';
 
 interface ChatMsg {
   role: 'system' | 'user' | 'agent';
@@ -415,10 +415,13 @@ Generate ONE specific, focused investigation question a journalist should pursue
     </div>
   );
 
-  const pinnedAngles   = angles.filter(a => a.status === 'pinned');
+  const PRIORITY: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  const byPriority = (a: Angle, b: Angle) =>
+    (PRIORITY[a.newsworthiness] ?? 3) - (PRIORITY[b.newsworthiness] ?? 3);
+
+  const pinnedAngles   = angles.filter(a => a.status === 'pinned').sort(byPriority);
   const proposedAngles = angles.filter(a => a.status === 'proposed');
-  const newAngles      = angles.slice(-3);
-  const visibleAngles  = tab === 'pinned' ? pinnedAngles : tab === 'new' ? newAngles : angles.filter(a => a.status !== 'dismissed');
+  const visibleAngles  = (tab === 'pinned' ? pinnedAngles : angles.filter(a => a.status !== 'dismissed')).sort(byPriority);
   const selectedAngle  = angles.find(a => a.id === selectedId) ?? null;
 
   const toolTitle: Record<Tool, string> = { angles: 'Story Angles', entities: 'Entities', timeline: 'Timeline', trace: 'Trace' };
@@ -604,9 +607,6 @@ Generate ONE specific, focused investigation question a journalist should pursue
                 </button>
                 <button className={`tab ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>
                   All <span className="pill">{angles.filter(a => a.status !== 'dismissed').length}</span>
-                </button>
-                <button className={`tab new-tab ${tab === 'new' ? 'active' : ''}`} onClick={() => setTab('new')}>
-                  New <span className="pill">{newAngles.length}</span>
                 </button>
               </div>
             )}
