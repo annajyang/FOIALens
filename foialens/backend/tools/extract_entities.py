@@ -58,7 +58,7 @@ async def extract_entities(
     )
 
     raw_text = extract_text(response)
-    print(f"[extract_entities] raw response ({len(raw_text)} chars): {raw_text[:400]!r}", flush=True)
+    print(f"[extract_entities] raw response ({len(raw_text)} chars): {raw_text!r}", flush=True)
     parsed = parse_json(raw_text)
     if not isinstance(parsed, list):
         print(f"[extract_entities] parse_json failed; raw={raw_text[:300]!r}", flush=True)
@@ -80,6 +80,9 @@ async def _fetch_chunks(scope: str, workspace_id: str) -> list:
         )
         print(f"[extract_entities] single-doc fetch: {len(rows)} chunks", flush=True)
         return rows
+
+    db_count = await pool().fetchval("SELECT count(*)::int FROM chunks WHERE workspace_id = $1", workspace_id)
+    print(f"[extract_entities] workspace_id={workspace_id!r} db_chunk_count={db_count}", flush=True)
 
     results = await asyncio.gather(
         *[search_documents(q, workspace_id, limit=12) for q in _ENTITY_QUERIES]

@@ -56,7 +56,7 @@ async def build_timeline(workspace_id: str, entity_names: list[str] | None = Non
     )
 
     raw_text = extract_text(response)
-    print(f"[build_timeline] raw response ({len(raw_text)} chars): {raw_text[:400]!r}", flush=True)
+    print(f"[build_timeline] raw response ({len(raw_text)} chars): {raw_text!r}", flush=True)
     parsed = parse_json(raw_text)
     if not isinstance(parsed, list):
         print(f"[build_timeline] parse_json failed; raw={raw_text[:300]!r}", flush=True)
@@ -72,6 +72,9 @@ async def _gather_chunks(workspace_id: str, entity_names: list[str]) -> list[dic
     queries = list(_BASE_QUERIES)
     for name in entity_names[:5]:
         queries.append(f"{name} date signed approved awarded")
+
+    db_count = await pool().fetchval("SELECT count(*)::int FROM chunks WHERE workspace_id = $1", workspace_id)
+    print(f"[build_timeline] workspace_id={workspace_id!r} db_chunk_count={db_count}", flush=True)
 
     results = await asyncio.gather(
         *[search_documents(q, workspace_id, limit=5) for q in queries]

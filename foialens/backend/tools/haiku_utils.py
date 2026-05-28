@@ -72,4 +72,31 @@ def parse_json(text: str):
         except json.JSONDecodeError:
             pass
 
+    # Object-scan recovery: extract every complete {...} block from the text.
+    # Handles responses that start mid-array (missing leading '[').
+    objects = []
+    i = 0
+    while i < len(cleaned):
+        if cleaned[i] == '{':
+            depth = 0
+            j = i
+            while j < len(cleaned):
+                if cleaned[j] == '{':
+                    depth += 1
+                elif cleaned[j] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            obj = json.loads(cleaned[i : j + 1])
+                            objects.append(obj)
+                        except json.JSONDecodeError:
+                            pass
+                        i = j
+                        break
+                j += 1
+        i += 1
+    if objects:
+        print(f"[parse_json] object-scan recovered {len(objects)} item(s)", flush=True)
+        return objects
+
     return None
