@@ -21,9 +21,11 @@ In both cases, manually reading through the documents to surface key information
 
 1. **Create a workspace** — give it a name related to your investigation.
 2. **Upload documents** — drag and drop or select PDFs from your file system.
-3. **Ask questions** — type a question about the documents in the chat. The agent will search across all uploaded files and respond with inline citations.
+3. **Run investigation** - either run the agent in "explore" mode to run undirected, or "directed" mode to specify a line of inquiry.
+4. **Explore angles** — the agent can propose investigative angles based on patterns it finds across documents. You can also click into "Entities" or "Timeline" to explore extracted information.
+5. **Pin angles** — pin the angles you find most interesting to keep them in view as you continue exploring.
+6. **Ask questions** — open a thread for an angle you've pinned. You can chat with the agent and ask questions, and the agent will search across the corpus and respond with inline citations.
 4. **Follow citations** — click any citation badge (e.g. `[filename, p.4]`) to jump directly to that page in the PDF viewer.
-5. **Explore angles** — the agent can propose investigative angles based on patterns it finds across documents.
 
 ---
 
