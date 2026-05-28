@@ -210,9 +210,9 @@ async def claim_workspace(workspace_id: str, body: ClaimRequest, session: Sessio
 
 @router.post("/workspaces", status_code=201)
 async def create_workspace(
+    session: Session,
     name: str = Form(...),
     files: list[UploadFile] = File(...),
-    session: Session = Depends(_get_session),
 ):
     token, email = session
     _validate_files(files)
@@ -234,9 +234,9 @@ async def create_workspace(
 
 @router.post("/workspaces/{workspace_id}/upload")
 async def upload_to_workspace(
+    session: Session,
     workspace_id: str,
     files: list[UploadFile] = File(...),
-    session: Session = Depends(_get_session),
 ):
     token, email = session
     try:

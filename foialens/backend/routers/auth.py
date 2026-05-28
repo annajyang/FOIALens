@@ -1,8 +1,9 @@
 import os
 import uuid
+from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from auth_utils import create_jwt, generate_otp, verify_otp
@@ -66,7 +67,10 @@ async def request_code(body: RequestBody):
 
 
 @router.post("/auth/verify")
-async def verify_code(body: VerifyBody):
+async def verify_code(
+    body: VerifyBody,
+    x_guest_token: Optional[str] = Header(None),
+):
     email = body.email.strip().lower()
     code = body.code.strip()
 
@@ -90,5 +94,17 @@ async def verify_code(body: VerifyBody):
         "UPDATE auth_tokens SET used_at = NOW() WHERE id = $1",
         row["id"],
     )
+
+    # Claim any anonymous workspaces from this browser session.
+    if x_guest_token:
+        try:
+            await pool().execute(
+                "UPDATE workspaces "
+                "SET owner_email = $1, expires_at = NULL, guest_token = NULL "
+                "WHERE guest_token = $2::uuid AND owner_email IS NULL",
+                email, x_guest_token,
+            )
+        except Exception as e:
+            print(f"[auth] workspace claim failed: {e}", flush=True)
 
     return {"token": create_jwt(email), "email": email}

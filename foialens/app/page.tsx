@@ -185,6 +185,14 @@ export default function Home() {
 
       {/* workspace list */}
       <div style={{ maxWidth: 960, margin: '0 auto', padding: '32px 24px' }}>
+        {!loading && !signedInAs && workspaces.length > 0 && (
+          <div style={{ marginBottom: 20, padding: '10px 14px', border: '1px solid var(--amber)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--amber)', letterSpacing: '0.04em' }}>
+              ⚠ Your workspaces expire in 7 days — sign in to save them permanently.
+            </span>
+            <button className="btn btn-amber" style={{ flexShrink: 0 }} onClick={openSignIn}>Sign in to save</button>
+          </div>
+        )}
         <div style={{ marginBottom: 24, display: 'flex', alignItems: 'baseline', gap: 12 }}>
           <h1 style={{ margin: 0, fontSize: 13, fontFamily: 'var(--mono)', fontWeight: 500, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--fg-dim)' }}>
             Workspaces
