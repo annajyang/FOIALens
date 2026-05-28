@@ -9,10 +9,11 @@ VALID_TYPES = {"person", "organization", "location"}
 
 # Queries designed to surface entity-dense chunks across different entity types.
 _ENTITY_QUERIES = [
-    "official director manager authorized signed by",
-    "organization company corporation contractor vendor",
-    "payment amount cost fee million dollars awarded",
-    "employee staff personnel appointed role title position",
+    "signed by director secretary chief officer commissioner",
+    "department agency bureau division office city county state",
+    "contractor vendor company corporation LLC incorporated",
+    "appointed hired promoted transferred reassigned resigned",
+    "located address headquarters district region jurisdiction",
 ]
 
 
@@ -44,10 +45,12 @@ async def extract_entities(
             {
                 "role": "user",
                 "content": (
-                    "Extract every named entity from the document text below.\n\n"
+                    "Extract every named person, organization, and location from the FOIA document text below.\n\n"
+                    "Focus on: named officials and staff, government agencies and departments, "
+                    "contractors and vendors, and named places. Omit generic dates and dollar amounts.\n\n"
                     "Return a JSON array where each element has exactly these fields:\n"
-                    '- "name": entity name (string)\n'
-                    '- "type": one of "person" | "organization" | "date" | "amount" | "location"\n'
+                    '- "name": entity name as it appears in the document (string)\n'
+                    '- "type": one of "person" | "organization" | "location"\n'
                     '- "mentions": approximate count of times mentioned (number)\n'
                     '- "pageRefs": page numbers where found (number[])\n'
                     '- "representativeContext": one sentence showing the entity in context (string)\n\n'
