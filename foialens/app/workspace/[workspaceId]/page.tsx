@@ -162,6 +162,9 @@ export default function WorkspacePage() {
   const [saving,        setSaving]        = useState(false);
   const [saveError,     setSaveError]     = useState<string | null>(null);
 
+  const [editingName,  setEditingName]  = useState(false);
+  const [namedraft,    setNameDraft]    = useState('');
+
   const [corpusExpanded,   setCorpusExpanded]   = useState(false);
   const [extracting,       setExtracting]       = useState(false);
   const [extractError,     setExtractError]     = useState<string | null>(null);
@@ -397,6 +400,16 @@ Generate ONE specific, focused investigation question a journalist should pursue
     }
   }
 
+  async function commitRename() {
+    const name = namedraft.trim();
+    setEditingName(false);
+    if (!name || !workspace || name === workspace.name) return;
+    try {
+      await api.renameWorkspace(workspaceId, name);
+      setWorkspace(w => w ? { ...w, name } : w);
+    } catch { /* silently revert */ }
+  }
+
   async function handleExtractEntities() {
     if (extracting || running) return;
     setExtracting(true); setExtractError(null);
@@ -464,7 +477,19 @@ Generate ONE specific, focused investigation question a journalist should pursue
         </div>
         <span className="crumb-sep">/</span>
         <div className="crumb-case">
-          <b>{workspace.name}</b>
+          {editingName ? (
+            <input
+              autoFocus
+              value={namedraft}
+              maxLength={60}
+              onChange={e => setNameDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditingName(false); }}
+              style={{ background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 500, letterSpacing: 0, padding: '1px 6px', outline: 'none', width: `${Math.max(8, namedraft.length + 2)}ch` }}
+            />
+          ) : (
+            <b style={{ cursor: 'text' }} onClick={() => { setNameDraft(workspace.name); setEditingName(true); }}>{workspace.name}</b>
+          )}
           <span className="case-id">opened {new Date(workspace.createdAt).toLocaleDateString()}</span>
         </div>
         <div className="topbar-spacer" />
