@@ -372,7 +372,6 @@ export default function HomePage() {
         <div className={s.wrap}>
           <span className={s.eyebrow} style={{ justifyContent: 'center' }}>Open a case</span>
           <h2>The lead is in there. Go find it.</h2>
-          <p>Point FOIALens at your next records release and have a ranked, cited angle list before your coffee&apos;s cold.</p>
           <div className={s.ctaActions}>
             <Link href="/workspaces" className={`${s.btn} ${s.btnAmber}`}>Open the workspace →</Link>
             <a href="#how" className={s.btn}>See how it works</a>
