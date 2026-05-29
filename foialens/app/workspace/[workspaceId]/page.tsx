@@ -373,7 +373,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
     setDeleting(true);
     try {
       await api.deleteWorkspace(workspaceId);
-      router.push('/');
+      router.push('/workspaces');
     } catch (e: unknown) {
       setDeleting(false);
       setDeleteOpen(false);
@@ -460,7 +460,7 @@ Generate ONE specific, focused investigation question a journalist should pursue
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden />
-          <span className="brand-name" style={{ cursor: 'pointer' }} onClick={() => router.push('/')}>FOIALENS</span>
+          <span className="brand-name" style={{ cursor: 'pointer' }} onClick={() => router.push('/workspaces')}>FOIALENS</span>
         </div>
         <span className="crumb-sep">/</span>
         <div className="crumb-case">
