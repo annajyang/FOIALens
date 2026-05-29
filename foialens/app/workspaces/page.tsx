@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 import { getSessionEmail, setAuthToken, clearAuthToken, isSignedIn } from '../../lib/session';
@@ -121,10 +122,10 @@ export default function Home() {
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--fg)' }}>
       {/* topbar */}
       <header className="topbar" style={{ height: 44 }}>
-        <div className="brand">
+        <Link href="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
           <span className="brand-mark" aria-hidden />
           <span className="brand-name">FOIALENS</span>
-        </div>
+        </Link>
         <div className="topbar-spacer" />
         {signedInAs ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
