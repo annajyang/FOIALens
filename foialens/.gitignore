@@ -34,3 +34,5 @@ npm-debug.log*
 # Test fixtures (may contain sensitive PDFs)
 scripts/fixtures/*
 /tmp/*
+
+video.md
