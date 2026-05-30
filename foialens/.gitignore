@@ -35,4 +35,4 @@ npm-debug.log*
 scripts/fixtures/*
 /tmp/*
 
-video.md
+../video.md
