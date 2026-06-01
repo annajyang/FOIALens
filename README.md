@@ -4,6 +4,10 @@ An AI-powered document analysis tool for journalists. Upload FOIA-released PDFs,
 
 **Live deployment:** [https://foialens-app-lzb2j.ondigitalocean.app/](https://foialens-app-lzb2j.ondigitalocean.app/)
 
+**Evaluation:** [User feedback & testing](foialens/docs/EVALUATION.md)
+
+**Demo video:** [Google Drive link](https://drive.google.com/file/d/1b7kUXYTh12l08PcHvSlLFBoU4YTC8yRC/view?usp=sharing)
+
 ---
 
 ## Demo File Sets
@@ -13,7 +17,7 @@ Try the tool with these real document sets included in this repo:
 - **[Epstein Files](demo_files/epstein_files.zip)** — DOJ-released documents showing correspondence and connections between Jeffrey Epstein and Stanford affiliates Nathan Wolfe and Stephen Kosslyn.
 - **[Palo Alto City Council](demo_files/palo_alto_city_council.zip)** — Large documents from a finance committee session and an architectural review board session.
 
-In both cases, manually reading through the documents to surface key information would take a journalist hours. FoiaLens surfaces answers in seconds, with citations pointing back to the exact source pages.
+In both cases, manually reading through the documents to surface key information would take a journalist hours. FoiaLens surfaces answers in minutes, with citations pointing back to the exact source pages.
 
 ---
 
