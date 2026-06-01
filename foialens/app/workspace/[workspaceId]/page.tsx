@@ -481,11 +481,10 @@ Generate ONE specific, focused investigation question a journalist should pursue
             <input
               autoFocus
               value={namedraft}
-              maxLength={60}
               onChange={e => setNameDraft(e.target.value)}
               onBlur={commitRename}
               onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditingName(false); }}
-              style={{ background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 500, letterSpacing: 0, padding: '1px 6px', outline: 'none', width: `${Math.max(8, namedraft.length + 2)}ch` }}
+              style={{ background: 'var(--bg-2)', border: '1px solid var(--border-strong)', color: 'var(--fg)', fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600, letterSpacing: '0.04em', padding: '1px 6px', outline: 'none', width: Math.max(120, namedraft.length * 8) }}
             />
           ) : (
             <b style={{ cursor: 'text' }} onClick={() => { setNameDraft(workspace.name); setEditingName(true); }}>{workspace.name}</b>

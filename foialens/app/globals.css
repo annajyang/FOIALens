@@ -685,6 +685,12 @@ input, textarea {
   transition: background 120ms, border-color 120ms;
 }
 .chat-cite:hover { background: color-mix(in srgb, var(--amber) 18%, transparent); border-color: var(--amber); }
+.chat-cite.invalid {
+  color: var(--fg-mute); background: transparent;
+  border-color: color-mix(in srgb, var(--fg-mute) 30%, transparent);
+  cursor: default; text-decoration: line-through;
+}
+.chat-cite.invalid:hover { background: transparent; border-color: color-mix(in srgb, var(--fg-mute) 30%, transparent); }
 
 .chat-quickreplies { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .chat-qr {
