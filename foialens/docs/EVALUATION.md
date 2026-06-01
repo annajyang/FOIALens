@@ -36,6 +36,8 @@ FOIALens was presented to staff members at The Daily, including reporters and ed
 
 -  "Asking follow-up questions in the thread chat was actually a big improvement to when I usually use ChatGPT, since its answers are specific to the document I uploaded and it cites the exact page."
 
+- "I ran some documents that I'd used in a previous investigation, and it actually raised some good points about things I should've followed up on but didn't."
+
 **Limitations raised:**
 
 - "I'm not sure when the entities/timelines view would be useful compared to just doing keyword search."
