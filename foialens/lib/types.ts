@@ -91,6 +91,7 @@ export interface Angle {
 
 export interface Citation {
   page: number;
+  document?: string;
   excerpt: string;
 }
 

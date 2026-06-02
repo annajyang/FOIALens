@@ -66,6 +66,11 @@ function findDocForPage(documents: Document[], page: number): Document | null {
   return documents.find(d => d.pageCount != null && d.pageCount >= page) ?? documents[0] ?? null;
 }
 
+function resolveDocForCitation(documents: Document[], citation: Citation): Document | null {
+  if (citation.document) return documents.find(d => d.filename === citation.document) ?? null;
+  return findDocForPage(documents, citation.page);
+}
+
 /* ── Agent seed message with clickable evidence ────────────────────────── */
 function buildAgentSeed(angle: Angle, documents: Document[]): string {
   const lines: string[] = [`I've reviewed the evidence on this angle.`, ''];
@@ -78,7 +83,7 @@ function buildAgentSeed(angle: Angle, documents: Document[]): string {
 
   if (angle.citations.length > 0) {
     const cites = angle.citations.map(c => {
-      const doc = findDocForPage(documents, c.page);
+      const doc = resolveDocForCitation(documents, c);
       return doc ? `[${doc.filename}, p.${c.page}]` : `[p.${c.page}]`;
     });
     lines.push(`**Sources:** ${cites.join(' · ')}`);
@@ -117,7 +122,7 @@ function buildChatSystem(angle: Angle, workspaceName: string, documents: Documen
     ``,
     `SOURCE PAGES:`,
     ...angle.citations.map(c => {
-      const doc = findDocForPage(documents, c.page);
+      const doc = resolveDocForCitation(documents, c);
       const ref = doc ? `[${doc.filename}, p.${c.page}]` : `p.${c.page}`;
       return `  - ${ref}${c.excerpt ? `: "${c.excerpt.slice(0, 80)}…"` : ''}`;
     }),
@@ -728,10 +733,15 @@ Generate ONE specific, focused investigation question a journalist should pursue
         <Inspector
           angle={tool === 'angles' ? selectedAngle : null}
           onPatch={patchAngle}
-          onOpenDoc={(page) => {
+          onOpenDoc={(citation) => {
             if (!selectedAngle) return;
-            const doc = findDocForPage(workspace.documents, page);
-            if (doc) openViewer(doc.filename, selectedAngle.citations.map(c => c.page), page);
+            const doc = resolveDocForCitation(workspace.documents, citation);
+            if (doc) {
+              const relevantPages = selectedAngle.citations
+                .filter(c => !c.document || c.document === doc.filename)
+                .map(c => c.page);
+              openViewer(doc.filename, relevantPages, citation.page);
+            }
           }}
           onOpenChat={openChat}
           hasChat={selectedAngle ? !!chatThreads[selectedAngle.id] : false}
@@ -987,6 +997,14 @@ function AngleGrid({ angles, running, selectedId, onSelect, onPatch, onOpenDoc, 
   const pinned   = angles.filter(a => a.status === 'pinned');
   const proposed = angles.filter(a => a.status === 'proposed');
 
+  function openDocForCitation(a: Angle, citation: Citation) {
+    const d = resolveDocForCitation(documents, citation);
+    if (d) {
+      const relevantPages = a.citations.filter(c => !c.document || c.document === d.filename).map(c => c.page);
+      onOpenDoc(d.filename, relevantPages, citation.page);
+    }
+  }
+
   return (
     <div className="grid">
       {pinned.length > 0 && (
@@ -999,7 +1017,7 @@ function AngleGrid({ angles, running, selectedId, onSelect, onPatch, onOpenDoc, 
         <AngleCard
           key={a.id} angle={a} isSelected={selectedId === a.id} delay={i * 40}
           onSelect={onSelect} onPatch={onPatch}
-          onOpenDoc={(page) => { const d = findDocForPage(documents, page); if (d) onOpenDoc(d.filename, a.citations.map(c => c.page), page); }}
+          onOpenDoc={(citation) => openDocForCitation(a, citation)}
           onOpenChat={onOpenChat}
           hasChat={!!chatThreads[a.id]}
           chatMsgCount={Math.max(0, (chatThreads[a.id]?.length ?? 0) - 2)}
@@ -1016,7 +1034,7 @@ function AngleGrid({ angles, running, selectedId, onSelect, onPatch, onOpenDoc, 
         <AngleCard
           key={a.id} angle={a} isSelected={selectedId === a.id} delay={i * 40}
           onSelect={onSelect} onPatch={onPatch}
-          onOpenDoc={(page) => { const d = findDocForPage(documents, page); if (d) onOpenDoc(d.filename, a.citations.map(c => c.page), page); }}
+          onOpenDoc={(citation) => openDocForCitation(a, citation)}
         />
       ))}
 
@@ -1038,13 +1056,13 @@ function AngleCard({ angle, isSelected, delay, onSelect, onPatch, onOpenDoc, onO
   delay: number;
   onSelect: (id: string) => void;
   onPatch: (id: string, status: AngleStatus) => void;
-  onOpenDoc?: (page: number) => void;
+  onOpenDoc?: (citation: Citation) => void;
   onOpenChat?: (id: string, draft?: string) => void;
   hasChat?: boolean;
   chatMsgCount?: number;
 }) {
-  const isPinned = angle.status === 'pinned';
-  const pages    = (angle.citations ?? []).map(c => c.page).sort((a, b) => a - b);
+  const isPinned       = angle.status === 'pinned';
+  const sortedCitations = (angle.citations ?? []).slice().sort((a, b) => a.page - b.page);
 
   return (
     <article
@@ -1064,19 +1082,19 @@ function AngleCard({ angle, isSelected, delay, onSelect, onPatch, onOpenDoc, onO
         <span className={`badge sev-${angle.newsworthiness.toUpperCase()}`}>● {angle.newsworthiness.toUpperCase()}</span>
         <span className="badge type">{angle.angleType}</span>
       </div>
-      {pages.length > 0 && (
+      {sortedCitations.length > 0 && (
         <div className="card-refs" onClick={e => e.stopPropagation()}>
-          {pages.slice(0, 6).map((p, i) => (
+          {sortedCitations.slice(0, 6).map((c, i) => (
             <span
               key={i}
               className="doc-link"
-              onClick={() => onOpenDoc?.(p)}
-              title={`Open page ${p}`}
+              onClick={() => onOpenDoc?.(c)}
+              title={`Open page ${c.page}${c.document ? ` of ${c.document}` : ''}`}
             >
-              <span className="ref-pages">p.{p}</span>
+              <span className="ref-pages">p.{c.page}</span>
             </span>
           ))}
-          {pages.length > 6 && <span className="ref-doc">+{pages.length - 6} more</span>}
+          {sortedCitations.length > 6 && <span className="ref-doc">+{sortedCitations.length - 6} more</span>}
         </div>
       )}
       <div className="card-actions" onClick={e => e.stopPropagation()}>
@@ -1100,7 +1118,7 @@ function AngleCard({ angle, isSelected, delay, onSelect, onPatch, onOpenDoc, onO
 function InspectorBody({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCount }: {
   angle: Angle;
   onPatch: (id: string, status: AngleStatus) => void;
-  onOpenDoc: (page: number) => void;
+  onOpenDoc: (citation: Citation) => void;
   onOpenChat: (id: string, draft?: string) => void;
   hasChat: boolean;
   chatMsgCount: number;
@@ -1136,7 +1154,7 @@ function InspectorBody({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsg
               <div
                 key={i}
                 className="doc-link"
-                onClick={() => onOpenDoc(c.page)}
+                onClick={() => onOpenDoc(c)}
                 style={{ fontFamily: 'var(--mono)', fontSize: 11.5, display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0' }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
@@ -1197,7 +1215,7 @@ function InspectorBody({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsg
 function Inspector({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCount }: {
   angle: Angle | null;
   onPatch: (id: string, status: AngleStatus) => void;
-  onOpenDoc: (page: number) => void;
+  onOpenDoc: (citation: Citation) => void;
   onOpenChat: (id: string, draft?: string) => void;
   hasChat: boolean;
   chatMsgCount: number;
@@ -1267,7 +1285,7 @@ function Inspector({ angle, onPatch, onOpenDoc, onOpenChat, hasChat, chatMsgCoun
               <InspectorBody
                 angle={angle}
                 onPatch={onPatch}
-                onOpenDoc={(page) => { setExpanded(false); onOpenDoc(page); }}
+                onOpenDoc={(citation) => { setExpanded(false); onOpenDoc(citation); }}
                 onOpenChat={(id, draft) => { setExpanded(false); onOpenChat(id, draft); }}
                 hasChat={hasChat}
                 chatMsgCount={chatMsgCount}

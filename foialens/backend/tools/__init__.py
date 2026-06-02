@@ -70,16 +70,18 @@ TOOL_DEFINITIONS = [
                     "summary":        {"type": "string", "description": "2–3 sentence explanation of why this is newsworthy"},
                     "newsworthiness": {"type": "string", "enum": ["high", "medium", "low"]},
                     "angleType":      {"type": "string", "enum": ["financial", "personnel", "timeline", "contradiction", "omission", "relationship", "other"]},
-                    "evidence":       {"type": "array", "items": {"type": "string"}, "description": "Key supporting facts with inline (p. N) citations"},
+                    "evidence":       {"type": "array", "items": {"type": "string"}, "description": "Key supporting facts with inline citations like (doc.pdf, p. N)"},
                     "citations": {
                         "type": "array",
+                        "description": "Use the EXACT startPage and documentName values from search_documents results. Never infer or calculate page numbers.",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "page":    {"type": "number"},
-                                "excerpt": {"type": "string", "description": "Verbatim text from the document"},
+                                "page":     {"type": "number", "description": "Exact value of startPage from the search_documents result"},
+                                "document": {"type": "string", "description": "Exact value of documentName from the search_documents result"},
+                                "excerpt":  {"type": "string", "description": "Verbatim text from the document"},
                             },
-                            "required": ["page", "excerpt"],
+                            "required": ["page", "document", "excerpt"],
                         },
                     },
                 },

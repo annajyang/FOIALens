@@ -41,7 +41,10 @@ def build_system_prompt(mode: str, directed_prompt: str | None = None) -> str:
             "Do NOT use generic phrases as queries.\n\n"
             f"{tool_budget}\n\n"
             "Cite every claim with page numbers. Propose every angle you find — do not filter yourself. "
-            "You MUST call propose_angle at least once."
+            "You MUST call propose_angle at least once.\n\n"
+            "CITATION RULE: When calling propose_angle, each citation MUST use the EXACT `startPage` "
+            "value as `page` and the EXACT `documentName` value as `document` from the search_documents "
+            "result that contains the evidence. Never calculate, guess, or modify these values."
         )
 
     return (
@@ -56,7 +59,10 @@ def build_system_prompt(mode: str, directed_prompt: str | None = None) -> str:
         "Search queries must be concrete and specific — names, dates, amounts, not generic phrases.\n\n"
         f"{tool_budget}\n\n"
         "Cite every claim with page numbers. Propose every angle you find — do not filter yourself. "
-        "You MUST call propose_angle at least once."
+        "You MUST call propose_angle at least once.\n\n"
+        "CITATION RULE: When calling propose_angle, each citation MUST use the EXACT `startPage` "
+        "value as `page` and the EXACT `documentName` value as `document` from the search_documents "
+        "result that contains the evidence. Never calculate, guess, or modify these values."
     )
 
 
