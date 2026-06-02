@@ -34,11 +34,23 @@ Angles are the primary artifact. Each one is a discrete story opportunity: a wor
 |---|---|---|
 | Python | ≥ 3.11 | Backend API server |
 | Node.js | ≥ 20 | Frontend only |
-| PostgreSQL | ≥ 14 with pgvector extension | Storage + semantic search |
-| Anthropic API key | — | Agent loop + entity/timeline extraction |
-| OpenAI API key | — | `text-embedding-3-small` embeddings only |
+| PostgreSQL | ≥ 14 | Storage + semantic search |
+| pgvector extension | ≥ 0.5.0 | Vector similarity search (must be installed separately) |
+| OpenRouter API key | — | All model inference (investigation, extraction, embeddings) |
 
-> **Why two API keys?** Anthropic does not expose an embeddings endpoint. OpenAI's `text-embedding-3-small` is cheap (~$0.02 / million tokens) and pairs naturally with pgvector. The Claude API is used for all reasoning.
+**Installing pgvector** (required — PostgreSQL does not include it by default):
+
+```bash
+# macOS (Homebrew)
+brew install pgvector
+
+# Ubuntu / Debian
+sudo apt install postgresql-16-pgvector   # replace 16 with your PG major version
+
+# From source (any platform)
+git clone https://github.com/pgvector/pgvector.git
+cd pgvector && make && make install
+```
 
 ---
 
@@ -63,17 +75,18 @@ cd backend && pip install -r requirements.txt && cd ..
 cp .env.local.example .env.local
 ```
 
-Edit `.env.local`:
+Edit `.env.local` and fill in the required values:
 
 ```env
-# Anthropic — agentic reasoning loop + Haiku extractions
-ANTHROPIC_API_KEY=sk-ant-...
+# OpenRouter — all model inference (get key at https://openrouter.ai/keys)
+OPENROUTER_API_KEY=sk-or-...
 
-# OpenAI — embeddings only
-OPENAI_API_KEY=sk-...
-
-# Postgres with pgvector
+# Postgres connection string
 DATABASE_URL=postgresql://user:password@localhost:5432/foialens
+
+# Optional: change the default models
+# OPENROUTER_MODEL=google/gemini-flash-1.5
+# OPENROUTER_EXTRACT_MODEL=google/gemini-flash-1.5
 ```
 
 ### 3. Database setup
@@ -133,8 +146,8 @@ Run another investigation — exploratory or directed — at any time. New angle
 ### Seed with a sample document
 
 ```bash
-cd backend
-python scripts/seed.py
+# From the project root
+npm run seed
 ```
 
 Ingests a sample public-domain FOIA release and opens a workspace in the browser.
@@ -148,9 +161,9 @@ Ingests a sample public-domain FOIA release and opens a workspace in the browser
 | Backend | FastAPI + uvicorn (Python 3.11+) | Async, native SSE streaming, clean routing |
 | Frontend | Next.js 14 (App Router) + TypeScript | React server components, file-based routing |
 | Database | PostgreSQL + pgvector | Relational + semantic search in one store |
-| Agent | Claude Sonnet (`claude-sonnet-4-6`) | Tool use + long-context reasoning |
-| Extraction | Claude Haiku (`claude-haiku-4-5-20251001`) | Structured entity/timeline extraction (10× cheaper) |
-| Embeddings | OpenAI `text-embedding-3-small` | Best cost/quality for semantic retrieval |
+| Agent | `google/gemini-flash-1.5` via OpenRouter | Tool use + long-context reasoning |
+| Extraction | `google/gemini-flash-1.5` via OpenRouter | Structured entity/timeline extraction |
+| Embeddings | `openai/text-embedding-3-small` via OpenRouter | Best cost/quality for semantic retrieval |
 | PDF parsing | pdfplumber | Page-level text extraction with layout awareness |
 | Styling | Tailwind CSS | Utility-first, no build-step CSS |
 
@@ -226,6 +239,5 @@ A typical 500-page FOIA dump (roughly 250k tokens of text):
 
 ## Known limitations
 
-- PDFs with scanned images (no text layer) are not supported — no OCR. Pre-process with AWS Textract or Google Document AI.
 - No collaborative editing — workspaces are single-user. Angles are not shared or commented on in real time.
 - Investigation runs within a workspace are sequential; starting a second run while one is in progress is rejected.

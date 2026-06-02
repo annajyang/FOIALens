@@ -97,10 +97,14 @@ async def verify_code(
     if not row or not verify_otp(code, row["code_hash"]):
         raise HTTPException(status_code=401, detail="Invalid or expired code.")
 
-    await pool().execute(
-        "UPDATE auth_tokens SET used_at = NOW() WHERE id = $1",
+    # Atomically mark the token used; if a concurrent request already redeemed it
+    # this UPDATE affects 0 rows and we reject the second attempt.
+    result = await pool().execute(
+        "UPDATE auth_tokens SET used_at = NOW() WHERE id = $1 AND used_at IS NULL",
         row["id"],
     )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=401, detail="Invalid or expired code.")
 
     # Claim any anonymous workspaces from this browser session.
     if x_guest_token:

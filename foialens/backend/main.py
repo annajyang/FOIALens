@@ -1,11 +1,13 @@
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-load_dotenv("../.env.local")
+# Resolve relative to this file so the path is correct regardless of CWD.
+load_dotenv(Path(__file__).parent.parent / ".env.local")
 
 from db.client import init_pool, close_pool
 from routers import workspaces, investigate, angles, runs, auth
@@ -13,6 +15,12 @@ from routers import workspaces, investigate, angles, runs, auth
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not os.environ.get("JWT_SECRET"):
+        print(
+            "[startup] WARNING: JWT_SECRET is not set — using an insecure default. "
+            "Set JWT_SECRET in .env.local before deploying.",
+            flush=True,
+        )
     await init_pool()
     await _migrate()
     yield

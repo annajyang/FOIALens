@@ -43,8 +43,16 @@ async def create_workspace_and_ingest(
 
 async def ingest_files(files: list[UploadFile], workspace_id: str) -> dict:
     total_chunks = 0
-    for file in files:
-        total_chunks += await _ingest_one(file, workspace_id)
+    try:
+        for file in files:
+            total_chunks += await _ingest_one(file, workspace_id)
+    except Exception:
+        # Ensure the workspace is never left stuck in 'ingesting'.
+        await pool().execute(
+            "UPDATE workspaces SET status = 'active', updated_at = NOW() WHERE id = $1",
+            workspace_id,
+        )
+        raise
     await pool().execute(
         "UPDATE workspaces SET status = 'ready', updated_at = NOW() WHERE id = $1",
         workspace_id,

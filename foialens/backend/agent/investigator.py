@@ -151,7 +151,16 @@ async def run_investigation(params: InvestigationParams) -> AsyncGenerator[dict,
                 if name != tc_name:
                     print(f"[tool] sanitized name {tc_name!r} → {name!r}", flush=True)
 
-                input_data = json.loads(tc_args)
+                try:
+                    input_data = json.loads(tc_args)
+                except json.JSONDecodeError as exc:
+                    print(f"[tool] malformed JSON args for {name}: {exc}", flush=True)
+                    messages.append({"role": "tool", "tool_call_id": tc_id,
+                                     "content": json.dumps({"error": "invalid tool arguments"})})
+                    trace.append({"type": "tool_error", "tool": name,
+                                  "error": str(exc), "timestamp": _now()})
+                    continue
+
                 yield {"type": "status", "message": f"Calling {name}…"}
 
                 result = await dispatch_tool(name, input_data,
@@ -318,10 +327,11 @@ def _merge_entities(
     for e in incoming:
         key = e["name"].lower()
         if key in by_name:
-            by_name[key]["mentions"] += e["mentions"]
-            for p in e["pageRefs"]:
-                if p not in by_name[key]["pageRefs"]:
-                    by_name[key]["pageRefs"].append(p)
+            by_name[key]["mentions"] = by_name[key].get("mentions", 0) + e.get("mentions", 0)
+            existing_refs = by_name[key].setdefault("pageRefs", [])
+            for p in e.get("pageRefs", []):
+                if p not in existing_refs:
+                    existing_refs.append(p)
         else:
             by_name[key] = {**e, **({"firstSeenRunId": first_seen_run_id} if first_seen_run_id else {})}
     return list(by_name.values())

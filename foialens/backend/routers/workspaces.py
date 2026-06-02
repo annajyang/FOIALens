@@ -1,11 +1,10 @@
 import asyncio
-from typing import Annotated, Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
-from auth_utils import decode_jwt
+from auth_utils import Session, check_workspace_access as _check_access
 from db.client import pool
 from ingestion.upload import create_workspace_and_ingest, ingest_files
 from storage.spaces import presigned_url, delete_folder, delete_object
@@ -22,22 +21,6 @@ class RenameRequest(BaseModel):
 
 class ClaimRequest(BaseModel):
     email: str
-
-
-def _get_session(
-    x_guest_token: Optional[str] = Header(None),
-    x_owner_email: Optional[str] = Header(None),
-    x_auth_token: Optional[str] = Header(None),
-) -> tuple[str | None, str | None]:
-    """Resolve (guest_token, email). JWT in X-Auth-Token takes precedence."""
-    if x_auth_token:
-        email = decode_jwt(x_auth_token)
-        if email:
-            return None, email
-    return x_guest_token or None, (x_owner_email or "").strip().lower() or None
-
-
-Session = Annotated[tuple[str | None, str | None], Depends(_get_session)]
 
 
 @router.get("/workspaces")
@@ -219,6 +202,9 @@ async def claim_workspace(workspace_id: str, body: ClaimRequest, session: Sessio
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")
     _check_access(ws, token, email)
+    # Authenticated users may only claim the workspace to their own verified email.
+    if email and claim_email != email:
+        raise HTTPException(status_code=403, detail="Authenticated users can only claim a workspace to their own email.")
     await pool().execute(
         "UPDATE workspaces SET owner_email = $1, expires_at = NULL WHERE id = $2",
         claim_email, workspace_id,
@@ -371,32 +357,25 @@ async def run_build_timeline(workspace_id: str, session: Session):
 
 
 @router.get("/documents/{doc_id}/url")
-async def get_document_url(doc_id: str):
+async def get_document_url(doc_id: str, session: Session):
+    token, email = session
     try:
-        row = await pool().fetchrow("SELECT file_key FROM documents WHERE id = $1", doc_id)
+        row = await pool().fetchrow(
+            "SELECT d.file_key, w.guest_token, w.owner_email "
+            "FROM documents d JOIN workspaces w ON w.id = d.workspace_id "
+            "WHERE d.id = $1",
+            doc_id,
+        )
     except asyncpg.DataError:
         raise HTTPException(status_code=404, detail="Document not found.")
     if not row or not row["file_key"]:
         raise HTTPException(status_code=404, detail="No file stored for this document.")
+    _check_access(row, token, email)
     try:
         return {"url": presigned_url(row["file_key"])}
     except KeyError as e:
         raise HTTPException(status_code=503, detail=f"File storage not configured: missing env var {e}")
 
-
-def _check_access(ws, token: str | None, email: str | None):
-    if ws["owner_email"] and email and ws["owner_email"] == email:
-        return
-    if ws["guest_token"] and token:
-        try:
-            import uuid
-            if ws["guest_token"] == uuid.UUID(token):
-                return
-        except (ValueError, AttributeError):
-            pass
-    if not ws["guest_token"] and not ws["owner_email"]:
-        return  # legacy workspace (no token set), allow access
-    raise HTTPException(status_code=403, detail="Access denied.")
 
 
 def _validate_files(files: list[UploadFile]) -> None:

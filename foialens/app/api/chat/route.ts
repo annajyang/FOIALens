@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       apiKey: process.env.OPENROUTER_API_KEY,
     });
     const response = await client.chat.completions.create({
-      model: process.env.OPENROUTER_MODEL ?? 'google/gemini-3.5-flash',
+      model: process.env.OPENROUTER_MODEL ?? 'google/gemini-flash-1.5',
       max_tokens: 4096,
       messages: [{ role: 'system', content: system }, ...messages],
     });

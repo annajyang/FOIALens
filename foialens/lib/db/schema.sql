@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   end_page     INTEGER NOT NULL,
   chunk_index    INTEGER NOT NULL,
   token_count    INTEGER,
-  embedding      vector(1024),
+  embedding      vector(1536),  -- default for text-embedding-3-small; resized at startup if model changes
   ocr_processed  BOOLEAN NOT NULL DEFAULT FALSE,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

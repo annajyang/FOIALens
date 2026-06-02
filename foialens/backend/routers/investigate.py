@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from auth_utils import Session, check_workspace_access
 from db.client import pool
 from agent.investigator import InvestigationParams, run_investigation
 from agent.prompts import WorkspaceContext
@@ -19,7 +20,8 @@ class InvestigateRequest(BaseModel):
 
 
 @router.post("/investigate")
-async def investigate(body: InvestigateRequest):
+async def investigate(body: InvestigateRequest, session: Session):
+    token, email = session
     if body.mode not in ("exploratory", "directed"):
         raise HTTPException(status_code=400, detail='mode must be "exploratory" or "directed".')
     cleaned_prompt = (body.prompt or "").strip() or None
@@ -27,11 +29,12 @@ async def investigate(body: InvestigateRequest):
         raise HTTPException(status_code=400, detail="A prompt is required for directed mode.")
 
     ws = await pool().fetchrow(
-        "SELECT name, status, entities, timeline FROM workspaces WHERE id = $1",
+        "SELECT name, status, entities, timeline, guest_token, owner_email FROM workspaces WHERE id = $1",
         body.workspaceId,
     )
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")
+    check_workspace_access(ws, token, email)
     if ws["status"] == "ingesting":
         raise HTTPException(status_code=409, detail="Document ingestion is still in progress.")
     if ws["status"] == "investigating":
