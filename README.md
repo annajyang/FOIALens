@@ -4,9 +4,11 @@ An AI-powered document analysis tool for journalists. Upload FOIA-released PDFs,
 
 **Live deployment:** [https://foialens-app-lzb2j.ondigitalocean.app/](https://foialens-app-lzb2j.ondigitalocean.app/)
 
+**Demo video:** [Google Drive link](https://drive.google.com/file/d/1b7kUXYTh12l08PcHvSlLFBoU4YTC8yRC/view?usp=sharing)
+
 **Evaluation:** [User feedback & testing](foialens/docs/EVALUATION.md)
 
-**Demo video:** [Google Drive link](https://drive.google.com/file/d/1b7kUXYTh12l08PcHvSlLFBoU4YTC8yRC/view?usp=sharing)
+**Code docs:** [API Spec](foialens/docs/API_SPEC.md), [Data Model](foialens/docs/DATA_MODEL.md)
 
 ---
 
