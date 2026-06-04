@@ -31,7 +31,8 @@ In both cases, manually reading through the documents to surface key information
 4. **Explore angles** — the agent can propose investigative angles based on patterns it finds across documents. You can also click into "Entities" or "Timeline" to explore extracted information.
 5. **Pin angles** — pin the angles you find most interesting to keep them in view as you continue exploring.
 6. **Ask questions** — open a thread for an angle you've pinned. You can chat with the agent and ask questions, and the agent will search across the corpus and respond with inline citations.
-4. **Follow citations** — click any citation badge (e.g. `[filename, p.4]`) to jump directly to that page in the PDF viewer.
+7. **Follow citations** — click any citation badge (e.g. `[filename, p.4]`) to jump directly to that page in the PDF viewer.
+8. **Optional: sign in** - sign in to connect your workspace to your email. Auth code is emailed to you.
 
 ---
 
