@@ -38,4 +38,4 @@ In both cases, manually reading through the documents to surface key information
 
 ## AI Declaration
 
-This project was developed in collaboration with AI tools. Features were implemented with the assistance of [Claude Code](https://claude.ai/code), and the UI/UX design was created using [Claude Design](https://claude.ai/design).
+This project was developed in collaboration with AI tools. Features were implemented with the assistance of [Claude Code](https://claude.ai/code), and the UI/UX design + video slides design were created using [Claude Design](https://claude.ai/design).
